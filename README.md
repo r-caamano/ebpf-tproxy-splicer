@@ -4,9 +4,10 @@
   tc-bpf to redirect ingress ipv4 udp/tcp flows toward specific
   dynamically created sockets used by openziti edge-routers.
   Note: For this to work the ziti-router code had to be modified to not insert
-        ip tables tproxy rules for the services defined snd to instead call map_update/map_delete_elem for tproxy redirection.
+        ip tables tproxy rules for the services defined and to instead call map_update/map_delete_elem for tproxy redirection.
         example edge code at https://github.com/r-caamano/edge/tree/full_test assumes map_update and map_delete binaries are in ziti-router search path   
-        and ebpf program loaded vi tc per below
+        and ebpf program loaded vi tc per below.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via   
+        go system calls to external binaries.
 
   prereqs: Ubuntu 22.04 server (kernel 5.15 or higher)
 
