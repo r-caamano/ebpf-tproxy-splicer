@@ -124,7 +124,7 @@ static struct bpf_sock_tuple *get_tuple(void *data, __u64 nh_off,
         return NULL;
     }
 
-    if (eth_proto == bpf_htons(ETH_P_ARP)) {
+    if (eth_proto == bpf_htons((ETH_P_IPV6)) {
         *ipv6 = true;
         return NULL;
     }
