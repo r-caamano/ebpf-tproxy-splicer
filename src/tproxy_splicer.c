@@ -21,6 +21,7 @@
 #include <linux/if_ether.h>
 #include <linux/in.h>
 #include <linux/ip.h>
+#include <linux/udp.h>
 #include <linux/pkt_cls.h>
 #include <bcc/bcc_common.h>
 #include <bpf/bpf_helpers.h>
@@ -118,6 +119,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, void *data, __u6
                                         bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
+    int result_len, ret;
     
     if (eth_proto == bpf_htons(ETH_P_ARP)) {
         *arp = true;
@@ -153,20 +155,6 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, void *data, __u6
             if (bpf_ntohs(udph->dest) == 6081){
                 bpf_printk("*** GENEVE MATCH FOUND ON DPORT = %d\n", bpf_ntohs(udph->dest));
                 bpf_printk("*** UDP PAYLOAD LENGTH = %d\n", bpf_ntohs(udph->len));
-
-                struct iphdr *iphg = (struct iphdr *)(data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr) + 40);
-                result = (struct bpf_sock_tuple *)(void*)(long)&iphg->saddr;
-                if (!result){
-                    bpf_printk("*** PRINT NULL0");
-                    return TC_ACT_OK;
-                }
-                result_len = sizeof(result->ipv4);
-                if ((unsigned long)result + result_len > (unsigned long)data_end){
-                    bpf_printk("*** PRINT NULL1");
-                    return NULL;
-                }
-                bpf_printk("*** INNER IP DPORT = %d\n", bpf_ntohs(result->ipv4.dport));
-
                 /*
                     Updating the skb to pop geneve header
                 */
@@ -177,24 +165,19 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, void *data, __u6
                     return NULL;
                 }
                 bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
-                void *data_end = (void *)(long)skb->data_end;
-                void *data = (void *)(long)skb->data;
-                struct ethhdr *eth = (struct ethhdr *)(data);
-                if ((void *)(eth + 1) > data_end) {
-                    bpf_printk("buffer struct was malformed.");
+
+                iph = (struct iphdr *)(void*)(unsigned long)(skb->data + nh_off);
+                if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                    bpf_printk("header too big");
                     return NULL;
                 }
-                struct iphdr *iph = (struct iphdr *)(void *)(eth + 1);
-                if ((void *)(iph + 1) > data_end) {
-                    bpf_printk("skb buffer struct was malformed.\n");
-                    return NULL;
-                }
-                bpf_printk("MAC PROTOCOL =%d", bpf_ntohs(eth->h_proto));
+                proto = iph->protocol;
                 bpf_printk("INNER IP DADDRESS=%x", bpf_ntohl(iph->daddr));
                 /*
                     geneve work done!!!
                 */
             }
+
             *udp = true;
         }else if(proto == IPPROTO_TCP){
             *tcp = true;
