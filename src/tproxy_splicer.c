@@ -113,7 +113,7 @@ static inline struct ifindex_ip4 *get_local_ip4(__u32 key){
     }
 }*/
 
-static struct bpf_sock_tuple *get_tuple(void *data, __u64 nh_off,
+static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, void *data, __u64 nh_off,
                                         void *data_end, __u16 eth_proto,
                                         bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp){
     struct bpf_sock_tuple *result;
@@ -142,13 +142,67 @@ static struct bpf_sock_tuple *get_tuple(void *data, __u64 nh_off,
 		}
         proto = iph->protocol;
         if(proto == IPPROTO_UDP){
-            *udp = true;    
+            struct udphdr *udph = (struct udphdr *)(data + nh_off + sizeof(struct iphdr));
+            if ((unsigned long)(udph + 1) > (unsigned long)data_end){
+                bpf_printk("udp header too big");
+                return NULL;
+            }
+            /*
+                If geneve port 6081, then look for geneve header verification
+            */
+            if (bpf_ntohs(udph->dest) == 6081){
+                bpf_printk("*** GENEVE MATCH FOUND ON DPORT = %d\n", bpf_ntohs(udph->dest));
+                bpf_printk("*** UDP PAYLOAD LENGTH = %d\n", bpf_ntohs(udph->len));
+
+                struct iphdr *iphg = (struct iphdr *)(data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr) + 40);
+                result = (struct bpf_sock_tuple *)(void*)(long)&iphg->saddr;
+                if (!result){
+                    bpf_printk("*** PRINT NULL0");
+                    return TC_ACT_OK;
+                }
+                result_len = sizeof(result->ipv4);
+                if ((unsigned long)result + result_len > (unsigned long)data_end){
+                    bpf_printk("*** PRINT NULL1");
+                    return NULL;
+                }
+                bpf_printk("*** INNER IP DPORT = %d\n", bpf_ntohs(result->ipv4.dport));
+
+                /*
+                    Updating the skb to pop geneve header
+                */
+                bpf_printk("SKB DATA LENGTH =%d", skb->len);
+                ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
+                if (ret) {
+                    bpf_printk("error calling skb adjust room.\n");
+                    return NULL;
+                }
+                bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
+                void *data_end = (void *)(long)skb->data_end;
+                void *data = (void *)(long)skb->data;
+                struct ethhdr *eth = (struct ethhdr *)(data);
+                if ((void *)(eth + 1) > data_end) {
+                    bpf_printk("buffer struct was malformed.");
+                    return NULL;
+                }
+                struct iphdr *iph = (struct iphdr *)(void *)(eth + 1);
+                if ((void *)(iph + 1) > data_end) {
+                    bpf_printk("skb buffer struct was malformed.\n");
+                    return NULL;
+                }
+                bpf_printk("MAC PROTOCOL =%d", bpf_ntohs(eth->h_proto));
+                bpf_printk("INNER IP DADDRESS=%x", bpf_ntohl(iph->daddr));
+                /*
+                    geneve work done!!!
+                */
+            }
+            *udp = true;
         }else if(proto == IPPROTO_TCP){
             *tcp = true;
 	    }else{
              return NULL;
         }
         *ipv4 = true;
+
         result = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
     } else {
         return NULL;
@@ -174,7 +228,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     if ((unsigned long)(eth + 1) > (unsigned long)data_end){
             return TC_ACT_SHOT;
 	}
-    tuple = get_tuple(data, sizeof(*eth), data_end, eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
+    tuple = get_tuple(skb, data, sizeof(*eth), data_end, eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
     if (!tuple){
         if(arp){
            return TC_ACT_OK;
