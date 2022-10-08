@@ -209,7 +209,7 @@ void add_tcp_index(__u16 index, struct tproxy_tcp_port_mapping *mapping, struct 
 int main(int argc, char **argv){
     
     if (argc < 7) {
-        fprintf(stderr, "Usage: %s <ip dest address or prefix> <prefix length> <dst_port> <src_port> <tproxy_port> <protocol id>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <ip dest address or prefix> <prefix length> <low_port> <high_port> <tproxy_port> <protocol id>\n", argv[0]);
         exit(0);
     }
     union bpf_attr if_map;
