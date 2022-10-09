@@ -188,17 +188,15 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, __u64 nh_off, __
                 proto = iph->protocol;
                 bpf_printk("INNER Protocol = %d", proto);
             }
-            /* recheck protocol for inner ip header */
+            /* set udp to true if inner udo for all other inner protocals will be allowed to the next check point */
             if (proto == IPPROTO_UDP) {
                 *udp = true;
-            } else if (proto == IPPROTO_TCP) {
-                *tcp = true;
-            } else {
-                return NULL;
             }
-         } else if (proto == IPPROTO_TCP) {
-                *tcp = true;
-         } else {
+        }
+        if (proto == IPPROTO_TCP) {
+            *tcp = true;
+        }
+        if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
             return NULL;
         }
         *ipv4 = true;
@@ -212,8 +210,6 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff * skb, __u64 nh_off, __
 //ebpf tc code
 SEC("sk_tproxy_splice")
 int bpf_sk_splice(struct __sk_buff *skb){
-    //void *data_end = (void *)(unsigned long)skb->data_end;
-    //void *data = (void *)(unsigned long)skb->data;
     struct ethhdr *eth = (struct ethhdr *)(void *)(unsigned long)(skb->data);
     struct bpf_sock_tuple *tuple, sockcheck1 = {0}, sockcheck2 = {0};
     struct bpf_sock *sk; 
