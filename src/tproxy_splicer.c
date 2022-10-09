@@ -113,7 +113,7 @@ struct bpf_elf_map SEC("maps") ifindex_ip_map = {
     .pinning  = PIN_GLOBAL_NS,
 }; 
 
-/* File system pind Hashmap to store the socket mapping with look up key with the 
+/* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
 *
 * struct tproxy_key {
