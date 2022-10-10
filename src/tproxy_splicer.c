@@ -235,8 +235,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
 
             /* If geneve port 6081, then do geneve header verification */
             if (bpf_ntohs(udph->dest) == GENEVE_UDP_PORT){
-                bpf_printk("GENEVE MATCH FOUND ON DPORT = %d", bpf_ntohs(udph->dest));
-                bpf_printk("UDP PAYLOAD LENGTH = %d", bpf_ntohs(udph->len));
+                //bpf_printk("GENEVE MATCH FOUND ON DPORT = %d", bpf_ntohs(udph->dest));
+                //bpf_printk("UDP PAYLOAD LENGTH = %d", bpf_ntohs(udph->len));
 
                 /* read receive geneve version and header length */
                 __u8 *genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
@@ -246,31 +246,31 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 }
                 int gen_ver  = genhdr[0] & 0xC0 >> 6;
                 int gen_hdr_len = genhdr[0] & 0x3F;
-                bpf_printk("Received Geneve version is %d", gen_ver);
-                bpf_printk("Received Geneve header length is %d bytes", gen_hdr_len * 4);
+                //bpf_printk("Received Geneve version is %d", gen_ver);
+                //bpf_printk("Received Geneve header length is %d bytes", gen_hdr_len * 4);
 
                 /* if the length is not equal to 32 bytes and version 0 */
                 if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
-                    bpf_printk("Geneve header length:version error %d:%d", gen_hdr_len * 4, gen_ver);
+                    //bpf_printk("Geneve header length:version error %d:%d", gen_hdr_len * 4, gen_ver);
                     return NULL;
                 }
 
                 /* Updating the skb to pop geneve header */
-                bpf_printk("SKB DATA LENGTH =%d", skb->len);
+                //bpf_printk("SKB DATA LENGTH =%d", skb->len);
                 ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
                 if (ret) {
-                    bpf_printk("error calling skb adjust room.");
+                    //bpf_printk("error calling skb adjust room.");
                     return NULL;
                 }
-                bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
+                //bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
                 /* Initialize iph for after popping outer */
                 iph = (struct iphdr *)(skb->data + nh_off);
                 if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    bpf_printk("header too big");
+                    //bpf_printk("header too big");
                     return NULL;
                 }
                 proto = iph->protocol;
-                bpf_printk("INNER Protocol = %d", proto);
+                //bpf_printk("INNER Protocol = %d", proto);
             }
             /* set udp to true if inner is udp, and let all other inner protos to the next check point */
             if (proto == IPPROTO_UDP) {
@@ -303,6 +303,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool udp=false;
     bool tcp=false;
     bool arp=false;
+    bool local=false;
     int ret;
 
     /* find ethernet header from skb->data pointer */
@@ -341,9 +342,10 @@ int bpf_sk_splice(struct __sk_buff *skb){
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
 
     
-    if((local_ip4) && (local_ip4->ipaddr)){
+    if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
+        local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
-       if((tuple->ipv4.daddr == local_ip4->ipaddr) && (bpf_ntohs(tuple->ipv4.dport) == 22)){
+       if((bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
        }
     }else{
@@ -421,8 +423,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->udp_mapping[port_key].low_port))
                          && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->udp_mapping[port_key].high_port))) {
-                            bpf_printk("udp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
-                             bpf_ntohs(tproxy->udp_mapping[port_key].tproxy_port));
+                            /* bpf_printk("udp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
+                               bpf_ntohs(tproxy->udp_mapping[port_key].tproxy_port)); */
+                            if(local){
+                                return TC_ACT_OK;
+                            }
                             sockcheck2.ipv4.daddr = tproxy->udp_mapping[port_key].tproxy_ip;
                             sockcheck2.ipv4.dport = tproxy->udp_mapping[port_key].tproxy_port;
                             sk = bpf_sk_lookup_udp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
@@ -448,7 +453,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          * if successfull jump to assign: 
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->tcp_mapping[port_key].low_port)) && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->tcp_mapping[port_key].high_port))) {
-                            bpf_printk("tcp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport), bpf_ntohs(tproxy->tcp_mapping[port_key].tproxy_port));
+                            /*bpf_printk("tcp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
+                              bpf_ntohs(tproxy->tcp_mapping[port_key].tproxy_port));*/
+                            if(local){
+                                return TC_ACT_OK;
+                            }
                 			sockcheck2.ipv4.daddr = tproxy->tcp_mapping[port_key].tproxy_ip;
                             sockcheck2.ipv4.dport = tproxy->tcp_mapping[port_key].tproxy_port;
                             sk = bpf_skc_lookup_tcp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
