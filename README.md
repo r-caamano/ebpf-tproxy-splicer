@@ -42,7 +42,7 @@
         
         sudo ufw allow in on <interface name> to any
         
-        *ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti*
+        ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
         services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
         initiated sockets as well.
 
