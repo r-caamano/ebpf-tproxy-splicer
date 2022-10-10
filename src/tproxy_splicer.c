@@ -37,8 +37,8 @@
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
-#define AWS_GNV_HDR_OPT_LEN     32
-#define AWS_GNV_HDR_LEN         40
+#define AWS_GNV_HDR_OPT_LEN     32 // Bytes
+#define AWS_GNV_HDR_LEN         40 // Bytes
 
 struct tproxy_tcp_port_mapping {
     __u16 low_port;
@@ -227,7 +227,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         /* check if ip protocol is UDP */
         if (proto == IPPROTO_UDP) {
             /* check outter ip header */
-            struct udphdr *udph = (struct udphdr *)(void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr));
+            struct udphdr *udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
             if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
                 bpf_printk("udp header is too big");
                 return NULL;
@@ -263,7 +263,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                     return NULL;
                 }
                 bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
-                iph = (struct iphdr *)(void *)(unsigned long)(skb->data + nh_off);
+                /* Initialize iph for after popping outer */
+                iph = (struct iphdr *)(skb->data + nh_off);
                 if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                     bpf_printk("header too big");
                     return NULL;
@@ -271,7 +272,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 proto = iph->protocol;
                 bpf_printk("INNER Protocol = %d", proto);
             }
-            /* set udp to true if inner udo for all other inner protocals will be allowed to the next check point */
+            /* set udp to true if inner is udp, and let all other inner protos to the next check point */
             if (proto == IPPROTO_UDP) {
                 *udp = true;
             }
@@ -279,7 +280,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         /* check if ip protocol is TCP */
         if (proto == IPPROTO_TCP) {
             *tcp = true;
-        }/* check if ip protocol is not UDP and TCP to return NULL */
+        }/* check if ip protocol is not UDP and not TCP to return NULL */
         if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
             return NULL;
         }
