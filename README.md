@@ -44,7 +44,7 @@
         
         ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
         services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
-        initiated sockets as well.
+        initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
 
   detach:
 
