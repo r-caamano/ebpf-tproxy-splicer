@@ -41,8 +41,8 @@
         sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec sk_tproxy_splice
         
         sudo ufw allow in on <interface name> to any 
-        **ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till
-        ziti services are provisioned as inbound intercepts. Router will statefully allow responses to router initiated sockets as well **
+        **ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till**
+        **ziti services are provisioned as inbound intercepts. Router will statefully allow responses to router initiated sockets as well**
 
   detach:
 
