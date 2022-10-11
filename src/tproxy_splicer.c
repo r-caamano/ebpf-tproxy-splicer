@@ -348,7 +348,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
        if((bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
        }
-    }else{
+    }else if((!local_ip4) || (!local_ip4->ipaddr)){
         /* if local ip not found means tproxy_map and ifindex_ip_maps are pot populated
          * so forward ssh to any local ip on system.
          */
