@@ -349,7 +349,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             return TC_ACT_OK;
        }
     }else if((!local_ip4) || (!local_ip4->ipaddr)){
-        /* if local ip not found means tproxy_map and ifindex_ip_maps are pot populated
+        /* if local ip not found means tproxy_map and ifindex_ip_maps are not populated
          * so forward ssh to any local ip on system.
          */
         if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
