@@ -423,8 +423,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->udp_mapping[port_key].low_port))
                          && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->udp_mapping[port_key].high_port))) {
-                            /* bpf_printk("udp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
-                               bpf_ntohs(tproxy->udp_mapping[port_key].tproxy_port)); */
+                            bpf_printk("udp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
+                               bpf_ntohs(tproxy->udp_mapping[port_key].tproxy_port));
                             if(local){
                                 return TC_ACT_OK;
                             }
@@ -453,8 +453,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          * if successfull jump to assign: 
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->tcp_mapping[port_key].low_port)) && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->tcp_mapping[port_key].high_port))) {
-                            /*bpf_printk("tcp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
-                              bpf_ntohs(tproxy->tcp_mapping[port_key].tproxy_port));*/
+                            bpf_printk("tcp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
+                              bpf_ntohs(tproxy->tcp_mapping[port_key].tproxy_port));
                             if(local){
                                 return TC_ACT_OK;
                             }
