@@ -5,7 +5,7 @@
   dynamically created sockets used by openziti edge-routers.
   Note: For this to work the ziti-router code had to be modified to not insert
         ip tables tproxy rules for the services defined and to instead call map_update/map_delete_elem for tproxy redirection.
-        example edge code at https://github.com/r-caamano/edge/tree/full_test assumes map_update and map_delete binaries are in ziti-router search path   
+        example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-router search path   
         and ebpf program loaded vi tc per below.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via   
         system calls to external binaries.  Also note this is ebpf tc based so interception only occurs for traffic ingressing on the interface that 
         the ebpf program is running.  So clients on lan interface would be redirected but local router traffic would not be.  Have not tested running 
