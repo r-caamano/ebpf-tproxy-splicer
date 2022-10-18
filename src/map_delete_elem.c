@@ -2,7 +2,7 @@
  /*
   *
   *   This program deletes a rule from an existing pinned 
-  *   zt_tproxy_map hash table created by the redirect_udp
+  *   zt_tproxy_map hash table created by the tproxy_splicer
   *   program when attatched to an interface via tc
   *
   *   This program is free software: you can redistribute it and/or modify
