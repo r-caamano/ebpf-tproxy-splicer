@@ -413,7 +413,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 			    if(!sk){
                                 return TC_ACT_SHOT;
                             }
-			    if((protocol == 6) && (sk->state != BPF_TCP_LISTEN)){
+			    if((protocol == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
 				bpf_sk_release(sk);
                                 return TC_ACT_SHOT;    
 			    }
