@@ -270,7 +270,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
 //ebpf tc code
 SEC("sk_tproxy_splice")
 int bpf_sk_splice(struct __sk_buff *skb){
-    struct bpf_sock_tuple *tuple, sockcheck1 = {0}, sockcheck2 = {0};
+    struct bpf_sock_tuple *tuple, sockcheck = {0};
     struct bpf_sock *sk; 
     int tuple_len;
     bool ipv4 = false;
@@ -357,11 +357,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
      * openziti router has tproxy intercepts defined for the flow
      */
 	protocol = IPPROTO_UDP;   
-        sockcheck1.ipv4.daddr = tuple->ipv4.daddr;
-        sockcheck1.ipv4.saddr = tuple->ipv4.saddr;
-        sockcheck1.ipv4.dport = tuple->ipv4.dport;
-        sockcheck1.ipv4.sport = tuple->ipv4.sport;
-        sk = bpf_sk_lookup_udp(skb, &sockcheck1, sizeof(sockcheck1.ipv4), BPF_F_CURRENT_NETNS, 0);
+        sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
         if(sk){
            /*
             * check if there is a dest ip associated with the local socket. if yes jump to assign if not
@@ -403,12 +399,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             if(local){
                                 return TC_ACT_OK;
                             }
-                            sockcheck2.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
-                            sockcheck2.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+                            sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
+                            sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
 			    if(protocol == 6){
-		                sk = bpf_skc_lookup_tcp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
+		                sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
 		            }else{
-                                sk = bpf_sk_lookup_udp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
+                                sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
 			    }
 			    if(!sk){
                                 return TC_ACT_SHOT;
