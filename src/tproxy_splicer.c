@@ -33,21 +33,14 @@
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
 #define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  25 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_INDEX_ENTRIES  50 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
 #define AWS_GNV_HDR_OPT_LEN     32 // Bytes
 #define AWS_GNV_HDR_LEN         40 // Bytes
 
-struct tproxy_tcp_port_mapping {
-    __u16 low_port;
-    __u16 high_port;
-    __u16 tproxy_port;
-    __u32 tproxy_ip;
-};
-
-struct tproxy_udp_port_mapping {
+struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
@@ -56,31 +49,16 @@ struct tproxy_udp_port_mapping {
 
 struct tproxy_tuple {
     __u32 dst_ip;
-	__u32 src_ip;
-    __u16 udp_index_len; /*tracks the number of entries in the udp_index_table*/
-    __u16 tcp_index_len; /*tracks the number of entries in the tcp_index_table*/
-    __u16 udp_index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
-                                             *tproxy_udp_port_mapping in the udp_maping array
-                                             * with each poulated index represening a udp tproxy 
-                                             * mapping in the udp_mapping array
+    __u32 src_ip;
+    __u16 index_len; /*tracks the number of entries in the index_table*/
+    __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
+                                             *tproxy_port_mapping in the port_maping array
+                                             * with each poulated index represening a udp or tcp tproxy 
+                                             * mapping in the port_mapping array
                                              */
-    __u16 tcp_index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
-                                             *tproxy_tcp_port_mapping in the tcp_maping array
-                                             * with each poulated index represening a tcp tproxy 
-                                             * mapping in the tcp_mapping array
-                                             */
-    struct tproxy_udp_port_mapping udp_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
+    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
                                                                *  with each index matches the low_port of
-                                                               * struct tproxy_udp_port_mapping {
-                                                               *  __u16 low_port;
-                                                               *  __u16 high_port;
-                                                               * __u16 tproxy_port;
-                                                               * __u32 tproxy_ip;
-                                                               * }
-                                                               */
-    struct tproxy_tcp_port_mapping tcp_mapping[MAX_TABLE_SIZE];/*Array to store unique tproxy mappings
-                                                               * with each index matches the low_port of
-                                                               * struct tproxy_udp_port_mapping {
+                                                               * struct tproxy_port_mapping {
                                                                *  __u16 low_port;
                                                                *  __u16 high_port;
                                                                * __u16 tproxy_port;
@@ -93,7 +71,7 @@ struct tproxy_tuple {
 struct tproxy_key {
     __u32 dst_ip;
     __u16 prefix_len;
-    __u16 pad;
+    __u16 protocol;
 };
 
 /*value to ifindex_ip_map*/
@@ -133,12 +111,9 @@ struct bpf_elf_map SEC("maps") ifindex_ip_map = {
 *    struct tproxy_tuple {
 *    __u32 dst_ip; future use
 *	 __u32 src_ip; 
-*    __u16 udp_index_len; //tracks the number of entries in the udp_index_table
-*    __u16 tcp_index_len; //tracks the number of entries in the tcp_index_table
-*    __u16 udp_index_table[MAX_INDEX_ENTRIES];
-*    __u16 tcp_index_table[MAX_INDEX_ENTRIES];
-*    struct tproxy_udp_port_mapping udp_mapping[MAX_TABLE_SIZE];
-*    struct tproxy_tcp_port_mapping tcp_mapping[MAX_TABLE_SIZE];
+*    __u16 index_len; //tracks the number of entries in the index_table
+*    __u16 index_table[MAX_INDEX_ENTRIES];
+*    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
 *    }
 */
   struct bpf_elf_map SEC("maps") zt_tproxy_map = {
@@ -305,6 +280,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool arp=false;
     bool local=false;
     int ret;
+    int protocol;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -367,6 +343,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
      * openziti router has tproxy intercepts defined for the flow
      */
     if(tcp){
+       protocol = IPPROTO_TCP;
        sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
        if(sk){
             if (sk->state != BPF_TCP_LISTEN){
@@ -374,12 +351,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             bpf_sk_release(sk);
         }
-    }
+    }else{
     /* if udp based tuple implement statefull inspection to see if they were
      * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
      * openziti router has tproxy intercepts defined for the flow
      */
-    if(udp){
+	protocol = IPPROTO_UDP;   
         sockcheck1.ipv4.daddr = tuple->ipv4.daddr;
         sockcheck1.ipv4.saddr = tuple->ipv4.saddr;
         sockcheck1.ipv4.dport = tuple->ipv4.dport;
@@ -403,76 +380,46 @@ int bpf_sk_splice(struct __sk_buff *skb){
              * lookup based on tuple-ipv4.daddr logically ANDed with 
              * cidr mask starting with /32 and working down to /1 if no match packet is discarded 
              */
-            struct tproxy_key key = {(tuple->ipv4.daddr & mask), maxlen-count,0}; 
+            struct tproxy_key key = {(tuple->ipv4.daddr & mask), maxlen-count,protocol}; 
             if ((tproxy = get_tproxy(key))){
-                /* prefix match found cehck if udp or tcp */
-                if(udp) {
-                    /* udp match found */
-                    __u16 udp_max_entries = tproxy->udp_index_len;
-                    if (udp_max_entries > MAX_INDEX_ENTRIES) {
-                        udp_max_entries = MAX_INDEX_ENTRIES;
+                /* prefix match found */
+                    __u16 max_entries = tproxy->index_len;
+                    if (max_entries > MAX_INDEX_ENTRIES) {
+                        max_entries = MAX_INDEX_ENTRIES;
                     }
                     
-                    for (int index = 0; index < udp_max_entries; index++) {
+                    for (int index = 0; index < max_entries; index++) {
                         /* set port key equal to the por value stored at current index*/
-                        int port_key = tproxy->udp_index_table[index];
+                        int port_key = tproxy->index_table[index];
                         /* 
                          * check if tuple destination port is greater than low port and lower than high port at
-                         * udp_mapping[port_key] if matched get associated tproxy port and attempt to find listening socket
+                         * mapping[port_key] if matched get associated tproxy port and attempt to find listening socket
                          * if successfull jump to assign: 
                          */
-                        if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->udp_mapping[port_key].low_port))
-                         && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->udp_mapping[port_key].high_port))) {
-                            bpf_printk("udp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
-                               bpf_ntohs(tproxy->udp_mapping[port_key].tproxy_port));
+                        if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
+                         && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
+                            bpf_printk("ip protocol %d tproxy_mapping->%d to %d",protocol, bpf_ntohs(tuple->ipv4.dport),
+                               bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
                             if(local){
                                 return TC_ACT_OK;
                             }
-                            sockcheck2.ipv4.daddr = tproxy->udp_mapping[port_key].tproxy_ip;
-                            sockcheck2.ipv4.dport = tproxy->udp_mapping[port_key].tproxy_port;
-                            sk = bpf_sk_lookup_udp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
-				            if(!sk){
+                            sockcheck2.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
+                            sockcheck2.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+			    if(protocol == 6){
+		                sk = bpf_skc_lookup_tcp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
+		            }else{
+                                sk = bpf_sk_lookup_udp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
+			    }
+			    if(!sk){
                                 return TC_ACT_SHOT;
                             }
+			    if((protocol == 6) && (sk->state != BPF_TCP_LISTEN)){
+				bpf_sk_release(sk);
+                                return TC_ACT_SHOT;    
+			    }
                             goto assign;
                         }
                     }
-                }else{
-                     /* tcp match found */
-                    __u16 tcp_max_entries = tproxy->tcp_index_len;
-                    if (tcp_max_entries > MAX_INDEX_ENTRIES) {
-                        tcp_max_entries = MAX_INDEX_ENTRIES;
-                    }
-                    /* for loop search from 0 to proxy->tcp_index_len or MAX_INDEX_ENTRIES which ever is less */
-                    for (int index = 0; index < tcp_max_entries; index++) {
-                         /*set port key equal to the por value stored at current index*/
-                        int port_key = tproxy->tcp_index_table[index];
-                        /*
-                         * check if tuple destination port is greater than low port and lower than high port at
-                         * tcp_mapping[port_key] if matched get associated tproxy port and attempt to find listening socket
-                         * if successfull jump to assign: 
-                         */
-                        if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->tcp_mapping[port_key].low_port)) && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->tcp_mapping[port_key].high_port))) {
-                            bpf_printk("tcp_tproxy_mapping->%d to %d", bpf_ntohs(tuple->ipv4.dport),
-                              bpf_ntohs(tproxy->tcp_mapping[port_key].tproxy_port));
-                            if(local){
-                                return TC_ACT_OK;
-                            }
-                			sockcheck2.ipv4.daddr = tproxy->tcp_mapping[port_key].tproxy_ip;
-                            sockcheck2.ipv4.dport = tproxy->tcp_mapping[port_key].tproxy_port;
-                            sk = bpf_skc_lookup_tcp(skb, &sockcheck2, sizeof(sockcheck2.ipv4),BPF_F_CURRENT_NETNS, 0);
-                            if(!sk){
-                                return TC_ACT_SHOT;
-                            }
-                            if (sk->state != BPF_TCP_LISTEN){
-                                bpf_sk_release(sk);
-                                return TC_ACT_SHOT;
-                            }
-                            goto assign;
-                        }
-                        
-                    }
-                }
             }
             /*algorithm used to calucate mask while traversing
             each octet.
