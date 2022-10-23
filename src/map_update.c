@@ -41,7 +41,7 @@
 
 
 
-#define MAX_INDEX_ENTRIES  25 //MAX port ranges per prefix 
+#define MAX_INDEX_ENTRIES  50 //MAX port ranges per prefix 
 #define MAX_TABLE_SIZE  65536 //PORT MApping table size
 
 
@@ -51,14 +51,7 @@ struct ifindex_ip4 {
     __u32 ifindex;
 };
 
-struct tproxy_tcp_port_mapping {
-    __u16 low_port;
-    __u16 high_port;
-    __u16 tproxy_port;
-    __u32 tproxy_ip;
-};
-
-struct tproxy_udp_port_mapping {
+struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
@@ -67,19 +60,16 @@ struct tproxy_udp_port_mapping {
 
 struct tproxy_tuple {
     __u32 dst_ip;
-	__u32 src_ip;
-    __u16 udp_index_len;
-    __u16 tcp_index_len;
-    __u16 udp_index_table[MAX_INDEX_ENTRIES];
-    __u16 tcp_index_table[MAX_INDEX_ENTRIES];
-    struct tproxy_udp_port_mapping udp_mapping[MAX_TABLE_SIZE];
-    struct tproxy_tcp_port_mapping tcp_mapping[MAX_TABLE_SIZE];
+    __u32 src_ip;
+    __u16 index_len;
+    __u16 index_table[MAX_INDEX_ENTRIES];
+    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
 };
 
 struct tproxy_key {
            __u32  dst_ip;
-		   __u16  prefix_len;
-           __u16  pad;
+	   __u16  prefix_len;
+           __u16  protocol;
 };
 
 /* function to get ifindex by interface name */
@@ -168,35 +158,19 @@ __u16 len2u16(char *len){
 }
 
 /* function to add a UDP port range to a tproxy mapping */
-void add_udp_index(__u16 index, struct tproxy_udp_port_mapping *mapping, struct tproxy_tuple *tuple){
+void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_tuple *tuple){
     bool is_new = true;
-    for (int x = 0; x < tuple->udp_index_len ; x++){
-        if(tuple->udp_index_table[x] == index){
+    for (int x = 0; x < tuple->index_len ; x++){
+        if(tuple->index_table[x] == index){
             is_new = false;
         }
     }
     if(is_new){
-        tuple->udp_index_table[tuple->udp_index_len] = index;
-        tuple->udp_index_len +=1;
+        tuple->index_table[tuple->index_len] = index;
+        tuple->index_len +=1;
     }
-    memcpy((void *)&tuple->udp_mapping[index],(void *)mapping,sizeof(struct tproxy_udp_port_mapping));
+    memcpy((void *)&tuple->port_mapping[index],(void *)mapping,sizeof(struct tproxy_port_mapping));
 }
-
-/* function to add or modify TCP port range to a tproxy mapping */
-void add_tcp_index(__u16 index, struct tproxy_tcp_port_mapping *mapping, struct tproxy_tuple *tuple){
-    bool is_new = true;
-    for (int x = 0; x < tuple->tcp_index_len ; x++){
-        if(tuple->tcp_index_table[x] == index){
-            is_new = false;
-        }
-    }
-    if(is_new){
-        tuple->tcp_index_table[tuple->tcp_index_len] = index;
-        tuple->tcp_index_len +=1;
-    }
-    memcpy((void *)&tuple->tcp_mapping[index],(void *)mapping,sizeof(struct tproxy_tcp_port_mapping));
-}
-
 
 int main(int argc, char **argv){
     /* Make sure user enters correct number of agrguments */
@@ -266,7 +240,7 @@ int main(int argc, char **argv){
     
     union bpf_attr map;
     const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-    struct tproxy_key key = {htonl(ip2l(argv[1])), len2u16(argv[2]),0};
+    struct tproxy_key key = {htonl(ip2l(argv[1])), len2u16(argv[2]),protocol};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
@@ -286,82 +260,46 @@ int main(int argc, char **argv){
     /* make system call to lookup prefix/mask in map */
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     unsigned short index = htons(port2s(argv[3]));
-    /* pupulate a struct for udp port mapping */
-    struct tproxy_udp_port_mapping udp_mapping = {
+    /* pupulate a struct for a port mapping */
+    struct tproxy_port_mapping port_mapping = {
         htons(port2s(argv[3])),
         htons(port2s(argv[4])),
         htons(port2s(argv[5])),
         0x0100007f
-        };
-    /* populate a map for tcp mapping */
-    struct tproxy_tcp_port_mapping tcp_mapping = {
-        htons(port2s(argv[3])),
-        htons(port2s(argv[4])),
-        htons(port2s(argv[5])),
-        0x0100007f
-        };
+    };
     /* 
      * Check result of lookup if not 0 then create a new entery
      * else edit an existing entry
      */
+    if(protocol == IPPROTO_UDP){
+        printf("Adding UDP mapping\n");
+    }else if(protocol == IPPROTO_TCP){
+        printf("Adding TCP mapping\n");
+    }else{
+        printf("Unsupported Protocol\n");
+        exit(1);
+    }
     if(lookup){
         /* create a new tproxy prefix entry and add port range to it */
-        if(protocol == 17){
-            struct tproxy_tuple rule = {
+        struct tproxy_tuple rule = {
                 htonl(ip2l(argv[1])),
                 0x0, /* zero source address future use */
                 1,
-                0,
                 {index},
-                {},
-                {},
                 {}
-            };
-            memcpy((void *)&rule.udp_mapping[index],(void *)&udp_mapping,sizeof(struct tproxy_udp_port_mapping));
-            map.value = (uint64_t)&rule;
-            if(!rule.udp_mapping[index].low_port){
-                printf("memcpy failed");
-                exit(1);
-            }
-        }else if(protocol==6){
-            struct tproxy_tuple rule = {
-                htonl(ip2l(argv[1])),
-                0x0, /* zero source address future use*/
-                0,
-                1,
-                {},
-                {index},
-                {},
-                {}
-            };
-            memcpy((void *)&rule.tcp_mapping[index],(void *)&tcp_mapping,sizeof(struct tproxy_tcp_port_mapping));
-            map.value = (uint64_t)&rule;
-            if(!rule.tcp_mapping[index].low_port){
-                printf("memcpy failed");
-                exit(1);
-            }
-        }else{
-            printf("Unsupported Protocol");
+        };
+        memcpy((void *)&rule.port_mapping[index],(void *)&port_mapping,sizeof(struct tproxy_port_mapping));
+        map.value = (uint64_t)&rule;
+        if(!rule.port_mapping[index].low_port){
+            printf("memcpy failed");
             exit(1);
         }
     }else{
         /* modify existing prefix entry and add or modify existing port mapping entry  */
         printf("lookup success\n");
-        if(protocol == 17){
-            add_udp_index(index, &udp_mapping, &orule);
-            if(!(orule.udp_mapping[index].low_port == index)){
-                printf("memcpy failed");
-                exit(1);
-            }
-        }
-        else if(protocol == 6){
-            add_tcp_index(index, &tcp_mapping, &orule);
-            if(!orule.tcp_mapping[index].low_port){
-                printf("memcpy failed");
-                exit(1);
-            }
-        }else{
-            printf("Unsupported Protocol\n");
+        add_index(index, &port_mapping, &orule);
+        if(!(orule.port_mapping[index].low_port == index)){
+            printf("memcpy failed");
             exit(1);
         }
     }

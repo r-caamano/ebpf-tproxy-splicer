@@ -28,17 +28,10 @@
 #include <unistd.h>
 #include <linux/bpf.h>
 
-#define MAX_INDEX_ENTRIES  25
+#define MAX_INDEX_ENTRIES 50 
 #define MAX_TABLE_SIZE  65536
 
-struct tproxy_tcp_port_mapping {
-    __u16 low_port;
-    __u16 high_port;
-    __u16 tproxy_port;
-    __u32 tproxy_ip;
-};
-
-struct tproxy_udp_port_mapping {
+struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
@@ -47,19 +40,16 @@ struct tproxy_udp_port_mapping {
 
 struct tproxy_tuple {
     __u32 dst_ip;
-	__u32 src_ip;
-    __u16 udp_index_len;
-    __u16 tcp_index_len;
-    __u16 udp_index_table[MAX_INDEX_ENTRIES];
-    __u16 tcp_index_table[MAX_INDEX_ENTRIES];
-    struct tproxy_udp_port_mapping udp_mapping[MAX_TABLE_SIZE];
-    struct tproxy_tcp_port_mapping tcp_mapping[MAX_TABLE_SIZE];
+    __u32 src_ip;
+    __u16 index_len;
+    __u16 index_table[MAX_INDEX_ENTRIES];
+    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
 };
 
 struct tproxy_key {
            __u32  dst_ip;
-		   __u16  prefix_len;
-           __u16  pad;
+           __u16  prefix_len;
+           __u16  protocol;
 };
 
 int32_t ip2l(char *ip){
@@ -122,55 +112,29 @@ __u16 len2u16(char *len){
 
 
 
-void remove_udp_index(__u16 index, struct tproxy_tuple *tuple){
+void remove_index(__u16 index, struct tproxy_tuple *tuple){
     bool found = false;
     int x =0;
-    for (; x < tuple->udp_index_len ; x++){
-        if(tuple->udp_index_table[x] == index){
+    for (; x < tuple->index_len ; x++){
+        if(tuple->index_table[x] == index){
             found = true;
             break;
         }
     }
     if(found){
-        for(; x < tuple->udp_index_len -1;x++){
-            tuple->udp_index_table[x] = tuple->udp_index_table[x+1];
+        for(; x < tuple->index_len -1;x++){
+            tuple->index_table[x] = tuple->index_table[x+1];
         }
-        tuple->udp_index_len -= 1;
-        memset((void *)&tuple->udp_mapping[index],0,sizeof(struct tproxy_udp_port_mapping));
-        if (tuple->udp_mapping[index].low_port == index){
-            printf("udp_mapping[%d].low_port = %d\n", index,ntohs(tuple->udp_mapping[index].low_port));
-        }
-        else{
-            printf("udp_mapping[%d] removed\n",ntohs(index));
-        }
-    }else{
-        printf("udp_mapping[%d] does not exist\n",ntohs(index));
-    }
-}
-
-void remove_tcp_index(__u16 index, struct tproxy_tuple *tuple){
-    bool found = false;
-    int x = 0;
-    for (x = 0; x < tuple->tcp_index_len ; x++){
-        if(tuple->tcp_index_table[x] == index){
-            found = true;
-            break;
-        }
-    }
-    if(found){
-        for(;x < tuple->tcp_index_len -1;x++){
-            tuple->tcp_index_table[x] = tuple->tcp_index_table[x+1];
-        }
-        tuple->tcp_index_len -= 1;
-        memset((void *)&tuple->tcp_mapping[index],0,sizeof(struct tproxy_tcp_port_mapping));
-        if (tuple->tcp_mapping[index].low_port == index){
-            printf("tcp_mapping[%d].low_port = %d\n", index,ntohs(tuple->tcp_mapping[index].low_port));
+        tuple->index_len -= 1;
+        memset((void *)&tuple->port_mapping[index],0,sizeof(struct tproxy_port_mapping));
+        if (tuple->port_mapping[index].low_port == index){
+            printf("mapping[%d].low_port = %d\n", index,ntohs(tuple->port_mapping[index].low_port));
         }
         else{
-            printf("tcp_mapping[%d] removed\n",ntohs(index));
+            printf("mapping[%d] removed\n",ntohs(index));
         }
     }else{
-        printf("tcp_mapping[%d] does not exist\n",ntohs(index));
+        printf("mapping[%d] does not exist\n",ntohs(index));
     }
 }
 
@@ -182,7 +146,7 @@ int main(int argc, char **argv){
         exit(0);
     }
     __u8 protocol = proto2u8(argv[4]);
-    struct tproxy_key key = {htonl(ip2l(argv[1])), len2u16(argv[2]),0};
+    struct tproxy_key key = {htonl(ip2l(argv[1])), len2u16(argv[2]),protocol};
     struct tproxy_tuple orule;
     //Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
@@ -204,16 +168,16 @@ int main(int argc, char **argv){
        exit(1);
     }else{
         printf("lookup success\n");
-        if(protocol == 17){
-            remove_udp_index(index, &orule);
-        }
-        else if(protocol == 6){
-            remove_tcp_index(index, &orule);
+	if(protocol == IPPROTO_UDP){
+            printf("Attempting to remove UDP mapping\n");
+        }else if(protocol == IPPROTO_TCP){
+            printf("Attempting to remove TCP mapping\n");
         }else{
             printf("Unsupported Protocol\n");
             exit(1);
         }
-        if((orule.tcp_index_len == 0) && (orule.udp_index_len == 0)){
+        remove_index(index, &orule);
+        if(orule.index_len == 0){
             memset(&map, 0, sizeof(map));
             map.pathname = (uint64_t) path;
             map.bpf_fd = 0;
