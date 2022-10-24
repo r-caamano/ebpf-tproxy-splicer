@@ -123,7 +123,7 @@ int32_t ip2l(char *ip){
 unsigned short port2s(char *port){
     char *endPtr;
     int32_t tmpint = strtol(port,&endPtr,10);
-    if((tmpint <=0) || (tmpint > 65535) || (!(*(endPtr) == '\0'))){
+    if((tmpint <0) || (tmpint > 65535) || (!(*(endPtr) == '\0'))){
        printf("Invalid Port: %s\n", port);
        exit(1);
     }
