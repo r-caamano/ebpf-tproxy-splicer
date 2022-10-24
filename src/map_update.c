@@ -59,8 +59,6 @@ struct tproxy_port_mapping {
 };
 
 struct tproxy_tuple {
-    __u32 dst_ip;
-    __u32 src_ip;
     __u16 index_len;
     __u16 index_table[MAX_INDEX_ENTRIES];
     struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
@@ -282,8 +280,6 @@ int main(int argc, char **argv){
     if(lookup){
         /* create a new tproxy prefix entry and add port range to it */
         struct tproxy_tuple rule = {
-                htonl(ip2l(argv[1])),
-                0x0, /* zero source address future use */
                 1,
                 {index},
                 {}

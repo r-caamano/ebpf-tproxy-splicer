@@ -48,8 +48,6 @@ struct tproxy_port_mapping {
 };
 
 struct tproxy_tuple {
-    __u32 dst_ip;
-    __u32 src_ip;
     __u16 index_len; /*tracks the number of entries in the index_table*/
     __u16 index_table[MAX_INDEX_ENTRIES];/*Array used as index table which point to struct 
                                              *tproxy_port_mapping in the port_maping array
