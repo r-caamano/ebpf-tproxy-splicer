@@ -28,7 +28,8 @@
 #include <bpf/bpf_endian.h>
 #include <iproute2/bpf_elf.h>
 #include <stdbool.h>
-#include <linux/tcp.h>\
+#include <linux/tcp.h>
+#include <net/if.h>
 
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
@@ -75,7 +76,7 @@ struct tproxy_key {
 /*value to ifindex_ip_map*/
 struct ifindex_ip4 {
     __u32 ipaddr;
-    __u32 ifindex;
+    char ifname[IF_NAMESIZE];
 };
 
 /* File system pinned Array Map key mapping to ifindex with used to allow 
@@ -317,7 +318,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     
     if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
-        local = true;
+       local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
        if((bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
