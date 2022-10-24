@@ -123,7 +123,7 @@ int32_t ip2l(char *ip){
 unsigned short port2s(char *port){
     char *endPtr;
     int32_t tmpint = strtol(port,&endPtr,10);
-    if((tmpint <=0) || (tmpint > 65535) || (!(*(endPtr) == '\0'))){
+    if((tmpint <0) || (tmpint > 65535) || (!(*(endPtr) == '\0'))){
        printf("Invalid Port: %s\n", port);
        exit(1);
     }
@@ -155,7 +155,7 @@ __u16 len2u16(char *len){
     return u16int;
 }
 
-/* function to add a UDP port range to a tproxy mapping */
+/* function to add a UDP or TCP port range to a tproxy mapping */
 void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_tuple *tuple){
     bool is_new = true;
     for (int x = 0; x < tuple->index_len ; x++){
