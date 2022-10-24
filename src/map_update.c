@@ -48,7 +48,7 @@
 
 struct ifindex_ip4 {
     __u32 ipaddr;
-    __u32 ifindex;
+    char ifname[IF_NAMESIZE];
 };
 
 struct tproxy_port_mapping {
@@ -219,8 +219,9 @@ int main(int argc, char **argv){
                 getnameinfo(address->ifa_addr,family_size,ap,sizeof(ap),0,0,1);
                 struct ifindex_ip4 ifip4 = {
                     htonl(ip2l(ap)),
-                    idx,
+		    {0}
                 };          
+		sprintf(ifip4.ifname, "%s", address->ifa_name);
                 if_map.key = (uint64_t)&idx;
                 if_map.flags = BPF_ANY;
                 if_map.value = (uint64_t)&ifip4;
