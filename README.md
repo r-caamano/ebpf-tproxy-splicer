@@ -56,7 +56,7 @@
         sudo ./map_update 172.16.240.0 24 5060 5060 58997 17 
   
   Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1 with 
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; tproxy_port set to 0 signifying local connect rule
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; tproxy_port set to 0 signifying local connect rule
   
         sudo ./map_update 10.1.1.1 32 443 443 0 6  
 
