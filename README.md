@@ -55,9 +55,12 @@
         Usage: ./map_update <ip dest address or prefix> <prefix length> <low_port> <high_port> <tproxy_port> <protocol id>
         sudo ./map_update 172.16.240.0 24 5060 5060 58997 17 
   
-  Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1
+  Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1 with 
+           tproxy_port set to 0 signifying local connect rule
   
-        sudo ./map_update 10.1.1.1 32 443 443 <any int 1-65535> 6 
+        sudo ./map_update 10.1.1.1 32 443 443 0 6  
+
+        
  
   Example: Monitor ebpf trace messages
 
