@@ -81,3 +81,5 @@
         sudo ./map_delete_elem 172.16.240.0 24 5060 17
   
   
+
+  ![Diagram](network.png) 
