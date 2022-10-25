@@ -333,7 +333,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     }
 
     /* forward DHCP messages to local system */
-    if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67)){
+    if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
        return TC_ACT_OK;
     }
 
