@@ -12,7 +12,7 @@
         on loopback at this point though may in the future.  Would likely need to change the restictive FW funtion if run on loopack. The ebpf program 
         also provides statefull inbound firewalling and only allows ssh,dhcp and arp bypass. Initially the program will allow ssh to any address 
         inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the 
-        interface that tc has loaded the ebpf program.  All other traffic must be configured as a service in an open ziti controller which ten inform 
+        interface that tc has loaded the ebpf program.  All other traffic must be configured as a service in an open ziti controller which then informs 
         the router which flows to allow in.  The open ziti edge-router then uses the map_update userspace app to insert rules to allow traffic in on     
         the interface tc is running on.  
 
