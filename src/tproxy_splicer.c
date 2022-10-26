@@ -86,14 +86,14 @@ struct ifindex_ip4 {
  * to find its cooresponding ip address. Currently used to limit
  * ssh to only the attached interface ip 
 */
-struct bpf_elf_map SEC("maps") ifindex_ip_map = {
-    .type = BPF_MAP_TYPE_ARRAY,
-    .id   = BPF_MAP_ID_IFINDEX_IP,
-    .size_key = sizeof(uint32_t),
-    .size_value = sizeof(struct ifindex_ip4),
-    .max_elem = 50,
-    .pinning  = PIN_GLOBAL_NS,
-}; 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(id, BPF_MAP_ID_IFINDEX_IP);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(struct ifindex_ip4));
+    __uint(max_entries, 50);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} ifindex_ip_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
@@ -115,14 +115,14 @@ struct bpf_elf_map SEC("maps") ifindex_ip_map = {
 *    struct tproxy_port_mapping port_mapping[MAX_TABLE_SIZE];
 *    }
 */
-  struct bpf_elf_map SEC("maps") zt_tproxy_map = {
-    .type = BPF_MAP_TYPE_HASH,
-    .id   = BPF_MAP_ID_TPROXY,
-    .size_key = sizeof(struct tproxy_key),
-    .size_value = sizeof(struct tproxy_tuple),
-    .max_elem = BPF_MAX_ENTRIES,
-    .pinning  = PIN_GLOBAL_NS,
-};
+struct {
+     __uint(type, BPF_MAP_TYPE_HASH);
+     __uint(id, BPF_MAP_ID_TPROXY);
+     __uint(key_size, sizeof(struct tproxy_key));
+     __uint(value_size,sizeof(struct tproxy_tuple));
+     __uint(max_entries, BPF_MAX_ENTRIES);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} zt_tproxy_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,pad} i.e. {192.168.1.0,24,0} where pad is any
