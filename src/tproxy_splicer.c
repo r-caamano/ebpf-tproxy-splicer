@@ -384,7 +384,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                     
                     for (int index = 0; index < max_entries; index++) {
-                        /* set port key equal to the por value stored at current index*/
+                        /* set port_key equal to the port value stored at current index*/
                         int port_key = tproxy->index_table[index];
                         /* 
                          * check if tuple destination port is greater than low port and lower than high port at
