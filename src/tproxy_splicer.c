@@ -125,9 +125,7 @@ struct {
 } zt_tproxy_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
- * based on {prefix,mask,pad} i.e. {192.168.1.0,24,0} where pad is any
- *__u16 value but should just be st to 0 as it is only used to align the key
- * to 8 bytes which is an ebpf requirement for map of type HASH
+ * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
  */
 static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
     struct tproxy_tuple *tu;
@@ -400,7 +398,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             }
                             sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
                             sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
-			    if(protocol == 6){
+			    if(protocol == IPPROTO_TCP){
 		                sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
 		            }else{
                                 sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
