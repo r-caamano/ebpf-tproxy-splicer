@@ -27,6 +27,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <linux/bpf.h>
+#include <arpa/inet.h>
 
 #define MAX_INDEX_ENTRIES 50 
 #define MAX_TABLE_SIZE  65536
@@ -49,31 +50,6 @@ struct tproxy_key {
            __u16  prefix_len;
            __u16  protocol;
 };
-
-int32_t ip2l(char *ip){
-    char *endPtr;
-    int32_t byte1 = strtol(ip,&endPtr,10);
-    if((byte1 <= 0) || (byte1 > 223) || (!isdigit(*(endPtr + 1)))){
-        printf("Invalid IP Address: %s\n",ip);
-        exit(1);	
-    }
-    int32_t byte2 = strtol(endPtr + 1,&endPtr,10);
-    if((byte2 < 0) || (byte2 > 255) || (!isdigit(*(endPtr + 1)))){
-       printf("Invalid IP Address: %s\n",ip);
-       exit(1);
-    }
-    int32_t byte3 = strtol(endPtr + 1,&endPtr,10);
-    if((byte3 < 0) || (byte3 > 255) || (!isdigit(*(endPtr + 1)))){
-       printf("Invalid IP Address: %s\n",ip);
-       exit(1);
-    }
-    int32_t byte4 = strtol(endPtr + 1,&endPtr,10);
-    if((byte4 < 0) || (byte4 > 255) || (!(*(endPtr) == '\0'))){
-       printf("Invalid IP Address: %s\n",ip);
-       exit(1);
-    }
-    return (byte1 << 24) + (byte2 << 16) + (byte3 << 8) + byte4;
-}
 
 unsigned short port2s(char *port){
     char *endPtr;
@@ -144,7 +120,14 @@ int main(int argc, char **argv){
         exit(0);
     }
     __u8 protocol = proto2u8(argv[4]);
-    struct tproxy_key key = {htonl(ip2l(argv[1])), len2u16(argv[2]),protocol};
+    struct in_addr ip;
+    if(!inet_aton(argv[1], &ip)){
+       printf("Invalid IP Address: %s\n",argv[1]);
+       exit(1);
+    }else{
+       printf("prefix=%u\n", ip.s_addr);
+    }
+    struct tproxy_key key = {ip.s_addr, len2u16(argv[2]),protocol};
     struct tproxy_tuple orule;
     //Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
