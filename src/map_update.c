@@ -192,8 +192,13 @@ int main(int argc, char **argv){
                 char ap[100];
                 const int family_size = sizeof(struct sockaddr_in);
                 getnameinfo(address->ifa_addr,family_size,ap,sizeof(ap),0,0,1);
+		struct in_addr ifaddr;
+                if(!inet_aton(ap, &ifaddr)){
+                    printf("Invalid IPv4 Address Assigned: %s\n",ap);
+		    continue;
+		}
                 struct ifindex_ip4 ifip4 = {
-                    htonl(ip2l(ap)),
+                    ifaddr.s_addr,
 		    {0}
                 };          
 		sprintf(ifip4.ifname, "%s", address->ifa_name);
@@ -218,6 +223,7 @@ int main(int argc, char **argv){
     if(!inet_aton(argv[1], &ip)){
        printf("Invalid IP Address: %s\n",argv[1]);
        exit(1);
+    }
     struct tproxy_key key = {ip.s_addr, len2u16(argv[2]),protocol};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
     /* open BPF zt_tproxy_map map */

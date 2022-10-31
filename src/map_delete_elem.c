@@ -124,8 +124,6 @@ int main(int argc, char **argv){
     if(!inet_aton(argv[1], &ip)){
        printf("Invalid IP Address: %s\n",argv[1]);
        exit(1);
-    }else{
-       printf("prefix=%u\n", ip.s_addr);
     }
     struct tproxy_key key = {ip.s_addr, len2u16(argv[2]),protocol};
     struct tproxy_tuple orule;
