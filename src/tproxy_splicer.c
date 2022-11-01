@@ -313,6 +313,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
+
     
     if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
        local = true;
@@ -390,7 +391,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                          && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
-                            bpf_printk("%s : ip protocol %d tproxy_mapping->%d to %d", local_ip4->ifname, protocol, bpf_ntohs(tuple->ipv4.dport),
+                            bpf_printk("%s:%d",local_ip4->ifname, protocol);
+                            bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                                bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
                             if(local){
                                 return TC_ACT_OK;
