@@ -67,13 +67,9 @@
            sudo cat /sys/kernel/debug/tracing/trace_pipe
            
            ziggy@ebpf-router:~$ sudo cat /sys/kernel/debug/tracing/trace_pipe
-           <idle>-0       [001] d.s.. 19039.327596: bpf_trace_printk: udp_tproxy_mapping->5060 to 54802
-           <idle>-0       [001] dNs.. 19043.309122: bpf_trace_printk: udp_tproxy_mapping->5060 to 54802
-           <idle>-0       [001] d.s.. 19043.736322: bpf_trace_printk: udp_tproxy_mapping->5060 to 54802
-           <idle>-0       [001] d.s.. 19058.701643: bpf_trace_printk: tcp_tproxy_mapping->39999 to 36921
-           <idle>-0       [001] d.s.. 19058.702262: bpf_trace_printk: tcp_tproxy_mapping->39999 to 36921
-            <...>-8526    [001] d.s.. 19058.702852: bpf_trace_printk: tcp_tproxy_mapping->39999 to 36921
-           <idle>-0       [001] d.s.. 19058.884039: bpf_trace_printk: tcp_tproxy_mapping->39999 to 36921
+           <idle>-0       [000] d.s3.  4418.982311: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth0
+           <idle>-0       [000] d.s3.  4430.342809: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth0
+           <idle>-0       [000] d.s3.  4442.441513: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth1
  
   Example: Remove prevoius entry from map
 
