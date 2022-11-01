@@ -67,9 +67,19 @@
            sudo cat /sys/kernel/debug/tracing/trace_pipe
            
            ziggy@ebpf-router:~$ sudo cat /sys/kernel/debug/tracing/trace_pipe
-           <idle>-0       [000] d.s3.  4418.982311: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth0
-           <idle>-0       [000] d.s3.  4430.342809: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth0
-           <idle>-0       [000] d.s3.  4442.441513: bpf_trace_printk: ip protocol 6 tproxy_mapping->22 to 46601 from eth1
+            <idle>-0       [000] dNs3. 23100.582441: bpf_trace_printk: tproxy_mapping->5060 to 33626
+            <idle>-0       [000] d.s3. 23101.365172: bpf_trace_printk: eth1:17
+            <idle>-0       [000] dNs3. 23101.365205: bpf_trace_printk: tproxy_mapping->5060 to 33626
+            <idle>-0       [000] d.s3. 23101.725048: bpf_trace_printk: eth1:17
+            <idle>-0       [000] dNs3. 23101.725086: bpf_trace_printk: tproxy_mapping->5060 to 33626
+            <idle>-0       [000] d.s3. 23102.389608: bpf_trace_printk: eth1:17
+            <idle>-0       [000] dNs3. 23102.389644: bpf_trace_printk: tproxy_mapping->5060 to 33626
+            <idle>-0       [000] d.s3. 23102.989964: bpf_trace_printk: eth1:17
+            <idle>-0       [000] dNs3. 23102.989997: bpf_trace_printk: tproxy_mapping->5060 to 33626
+            <idle>-0       [000] d.s3. 23138.910079: bpf_trace_printk: eth1:6
+            <idle>-0       [000] dNs3. 23138.910113: bpf_trace_printk: tproxy_mapping->22 to 39643
+            <idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: eth0:6
+            <idle>-0       [000] dNs3. 23153.458359: bpf_trace_printk: tproxy_mapping->22 to 39643
  
   Example: Remove prevoius entry from map
 
