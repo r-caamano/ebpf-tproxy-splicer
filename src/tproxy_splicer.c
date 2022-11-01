@@ -289,10 +289,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* check if incomming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
-    
+
+    /*look up attached interface IP address*/
+    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
+
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
-        if(arp){
+	if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
+	   return TC_ACT_OK;
+	}
+	else if(arp){
            return TC_ACT_OK;
         }else{
            return TC_ACT_SHOT;
@@ -312,10 +318,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
 	__u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
 	__u16 maxlen = 32; /* max number ip ipv4 prefixes */
 
-    /*look up attached interface IP address*/
-    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
-
-    
     if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
        local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
@@ -443,7 +445,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             exponent++;
     } 
     /*else drop packet if not running on loopback*/
-    if((local_ip4) && (!bpf_strncmp(local_ip4->ifname, 2, "lo"))){
+    if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;
@@ -458,7 +460,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
-    if((local_ip4) && (!bpf_strncmp(local_ip4->ifname, 2, "lo"))){
+    if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;

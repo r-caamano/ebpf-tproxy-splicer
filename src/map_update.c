@@ -187,7 +187,6 @@ int main(int argc, char **argv){
     while(address){
         int family = address->ifa_addr->sa_family;
         if(family == AF_INET){
-            if(strncmp(address->ifa_name,"lo",2)){
                 get_index(address->ifa_name,&idx);	
                 char ap[16];
                 const int family_size = sizeof(struct sockaddr_in);
@@ -214,7 +213,6 @@ int main(int argc, char **argv){
 	                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
                     exit(1);
                 }
-            }
         }
         address = address->ifa_next;
     }
