@@ -30,6 +30,7 @@
 #include <stdbool.h>
 #include <linux/tcp.h>
 #include <net/if.h>
+#include <string.h>
 
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
@@ -428,7 +429,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 exponent=0;
             }
             if(mask == 0x00000080){
-                return TC_ACT_SHOT;
+		break;
             }
             if((mask >= 0x80ffffff) && (exponent >= 24)){
                 mask = mask - (1 << exponent);
@@ -441,7 +442,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             exponent++;
     } 
-    return TC_ACT_SHOT;
+    /*else drop packet if not running on loopback*/
+    if((local_ip4) && (!bpf_strncmp(local_ip4->ifname, 2, "lo"))){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
     assign:
     /*attempt to splice the skb to the tproxy or local socket*/
     ret = bpf_sk_assign(skb, sk, 0);
@@ -451,7 +457,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
         //if succedded forward to the stack
         return TC_ACT_OK;
     }
-    /*else drop packet*/
-    return TC_ACT_SHOT;
+    /*else drop packet if not running on loopback*/
+    if((local_ip4) && (!bpf_strncmp(local_ip4->ifname, 2, "lo"))){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
 }
 SEC("license") const char __license[] = "Dual BSD/GPL";

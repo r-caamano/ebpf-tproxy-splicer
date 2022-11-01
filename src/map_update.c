@@ -189,9 +189,13 @@ int main(int argc, char **argv){
         if(family == AF_INET){
             if(strncmp(address->ifa_name,"lo",2)){
                 get_index(address->ifa_name,&idx);	
-                char ap[100];
+                char ap[16];
                 const int family_size = sizeof(struct sockaddr_in);
-                getnameinfo(address->ifa_addr,family_size,ap,sizeof(ap),0,0,1);
+		if(strncmp(address->ifa_name,"lo",2)){
+                    getnameinfo(address->ifa_addr,family_size,ap,sizeof(ap),0,0,1);
+		}else{
+		    sprintf(ap, "%s", "127.0.0.1");
+		}
 		struct in_addr ifaddr;
                 if(!inet_aton(ap, &ifaddr)){
                     printf("Invalid IPv4 Address Assigned: %s\n",ap);
