@@ -394,7 +394,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             bpf_printk("%s:%d",local_ip4->ifname, protocol);
                             bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                                bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
-                            if(local){
+                            if(local || (tproxy->port_mapping[port_key].tproxy_port == 0)){
                                 return TC_ACT_OK;
                             }
                             sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
