@@ -374,7 +374,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
              * cidr mask starting with /32 and working down to /1 if no match packet is discarded 
              */
             struct tproxy_key key = {(tuple->ipv4.daddr & mask), maxlen-count,protocol}; 
-            if ((tproxy = get_tproxy(key))){
+            if ((tproxy = get_tproxy(key)) && local_ip4){
                 /* prefix match found */
                     __u16 max_entries = tproxy->index_len;
                     if (max_entries > MAX_INDEX_ENTRIES) {
@@ -391,9 +391,10 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                          && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
-                            bpf_printk("ip protocol %d tproxy_mapping->%d to %d",protocol, bpf_ntohs(tuple->ipv4.dport),
+                            bpf_printk("%s:%d",local_ip4->ifname, protocol);
+                            bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                                bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
-                            if(local){
+                            if(local || (tproxy->port_mapping[port_key].tproxy_port == 0)){
                                 return TC_ACT_OK;
                             }
                             sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
