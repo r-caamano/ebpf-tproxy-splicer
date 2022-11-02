@@ -295,7 +295,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
-	if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
+	if(skb->ingress_ifindex == 1){
 	   return TC_ACT_OK;
 	}
 	else if(arp){
@@ -303,20 +303,24 @@ int bpf_sk_splice(struct __sk_buff *skb){
         }else{
            return TC_ACT_SHOT;
         }
-	}
+    }
 
     /* determine length of tupple */
     tuple_len = sizeof(tuple->ipv4);
-	if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-	    return TC_ACT_SHOT;
-	}
+    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+       return TC_ACT_SHOT;
+    }
+
+    if((skb->ingress_ifindex == 1) && udp && (bpf_ntohs(tuple->ipv4.dport) == 53)){
+       return TC_ACT_OK;
+    }
 
     /* declare tproxy tuple as key for tpoxy mapping lookups */
-	struct tproxy_tuple *tproxy;  
+    struct tproxy_tuple *tproxy;  
 
-	__u32 exponent=24;  /* unsugend integer used to calulate prefix matches */
-	__u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
-	__u16 maxlen = 32; /* max number ip ipv4 prefixes */
+    __u32 exponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
+    __u16 maxlen = 32; /* max number ip ipv4 prefixes */
 
     if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
        local = true;
@@ -445,7 +449,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             exponent++;
     } 
     /*else drop packet if not running on loopback*/
-    if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
+    if(skb->ingress_ifindex == 1){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;
@@ -460,7 +464,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
         return TC_ACT_OK;
     }
     /*else drop packet if not running on loopback*/
-    if((local_ip4) && (local_ip4->ipaddr == 0x0100007f)){
+    if(skb->ingress_ifindex == 1){
         return TC_ACT_OK;
     }else{
         return TC_ACT_SHOT;
