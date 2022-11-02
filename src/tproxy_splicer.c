@@ -30,6 +30,7 @@
 #include <stdbool.h>
 #include <linux/tcp.h>
 #include <net/if.h>
+#include <string.h>
 
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
@@ -288,33 +289,39 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* check if incomming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
-    
-    /* if not tuple forward ARP and drop all other traffic */
-    if (!tuple){
-        if(arp){
-           return TC_ACT_OK;
-        }else{
-           return TC_ACT_SHOT;
-        }
-	}
-
-    /* determine length of tupple */
-    tuple_len = sizeof(tuple->ipv4);
-	if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
-	    return TC_ACT_SHOT;
-	}
-
-    /* declare tproxy tuple as key for tpoxy mapping lookups */
-	struct tproxy_tuple *tproxy;  
-
-	__u32 exponent=24;  /* unsugend integer used to calulate prefix matches */
-	__u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
-	__u16 maxlen = 32; /* max number ip ipv4 prefixes */
 
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
 
-    
+    /* if not tuple forward ARP and drop all other traffic */
+    if (!tuple){
+	if(skb->ingress_ifindex == 1){
+	   return TC_ACT_OK;
+	}
+	else if(arp){
+           return TC_ACT_OK;
+        }else{
+           return TC_ACT_SHOT;
+        }
+    }
+
+    /* determine length of tupple */
+    tuple_len = sizeof(tuple->ipv4);
+    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+       return TC_ACT_SHOT;
+    }
+
+    if((skb->ingress_ifindex == 1) && udp && (bpf_ntohs(tuple->ipv4.dport) == 53)){
+       return TC_ACT_OK;
+    }
+
+    /* declare tproxy tuple as key for tpoxy mapping lookups */
+    struct tproxy_tuple *tproxy;  
+
+    __u32 exponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
+    __u16 maxlen = 32; /* max number ip ipv4 prefixes */
+
     if((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr)){
        local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
@@ -428,7 +435,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 exponent=0;
             }
             if(mask == 0x00000080){
-                return TC_ACT_SHOT;
+		break;
             }
             if((mask >= 0x80ffffff) && (exponent >= 24)){
                 mask = mask - (1 << exponent);
@@ -441,7 +448,12 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             exponent++;
     } 
-    return TC_ACT_SHOT;
+    /*else drop packet if not running on loopback*/
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
     assign:
     /*attempt to splice the skb to the tproxy or local socket*/
     ret = bpf_sk_assign(skb, sk, 0);
@@ -451,7 +463,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
         //if succedded forward to the stack
         return TC_ACT_OK;
     }
-    /*else drop packet*/
-    return TC_ACT_SHOT;
+    /*else drop packet if not running on loopback*/
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
 }
 SEC("license") const char __license[] = "Dual BSD/GPL";
