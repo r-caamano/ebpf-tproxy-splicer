@@ -1,12 +1,12 @@
 # Intro:
 
-  This is a project to develop an ebpf program that utilizes 
-  tc-bpf to redirect ingress ipv4 udp/tcp flows toward specific
-  dynamically created sockets used by openziti edge-routers.
+  This is a project to develop an ebpf program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward
+  dynamically created sockets that coorespond to zero trust based services on OpenZiti edge-routers.
   Note: For this to work the ziti-router code had to be modified to not insert
         ip tables tproxy rules for the services defined and to instead call map_update/map_delete_elem for tproxy redirection.
         example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-router search path   
-        and ebpf program loaded vi tc per below.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via   
+        and ebpf program loaded vi tc per below. Those interested on how to setup an openziti dev environment should visit 
+        https://github.com/openziti/ziti. In a later release I will be working on writing the MAP update/delete directly via GO rather than via   
         system calls to external binaries.  Also note this is ebpf tc based so interception only occurs for traffic ingressing on the interface that 
         the ebpf program is running.  So clients on lan interface would be redirected but local router traffic would not be.  Have not tested running 
         on loopback at this point though may in the future.  Would likely need to change the restictive FW funtion if run on loopack. The ebpf program 
