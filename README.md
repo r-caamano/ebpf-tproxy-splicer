@@ -23,9 +23,9 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         sudo yum upgrade --refresh
         sudo yum install -y clang bcc-devel libbpf-devel iproute-devel iproute-tc glibc-devel.i686 git
 
-        On fedora I found that NetworkManager interferes with eBPF socket redirection and can be unpredictable so below
-        is what I changed to get it working consistently. Other less intrusive methods not requiring removal of NM might also
-        be possible. 
+        On fedora I found that NetworkManager interferes with eBPF socket redirection and can
+        be unpredictable so belowis what I changed to get it working consistently. Other less
+        intrusive methods not requiring removal of NM might also be possible. 
 
         sudo yum install network-scripts
         sudo systemctl enable network
@@ -48,8 +48,10 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
 
             then:
 
-            The following grub change is only necessary on systems that do not use ethX naming by default like vmware.
-            #this changes fedora back to using ethX for interface naming network-scripts looks for this nomncature and will fail DHCP otherwise
+            The following grub change is only necessary on systems that do not use ethX naming by
+            default like vmware.
+            #this changes fedora back to using ethX for interface naming network-scripts looks
+             for this nomncature and will fail DHCP otherwise
             
             sudo vi /etc/default/grub
 
