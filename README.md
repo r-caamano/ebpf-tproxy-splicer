@@ -6,14 +6,77 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
 
   prereqs: **Ubuntu 22.04 server** (kernel 5.15 or higher)
 
-           sudo apt update
+        sudo apt update
 
-           sudo apt upgrade
+        sudo apt upgrade
 
-           sudo reboot
+        sudo reboot
 
-           sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev
+        sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev
             
+  Additional Distro testing:
+
+        Fedora 36 kernel 6.0.5-200
+        
+        sudo yum clean all
+        sudo yum check-update
+        sudo yum upgrade --refresh
+        sudo yum install -y clang bcc-devel libbpf-devel iproute-devel iproute-tc glibc-devel.i686 git
+
+        On fedora I found that NetworkManager interferes with eBPF socket redirection and can
+        be unpredictable so belowis what I changed to get it working consistently. Other less
+        intrusive methods not requiring removal of NM might also be possible. 
+
+        sudo yum install network-scripts
+        sudo systemctl enable network
+        sudo yum remove NetworkManager
+
+        sudo vi /etc/sysconfig/network-scripts/ifcfg-eth0
+            if eth0 will be dhcp then something like:
+
+                 BOOTPROTO=dhcp
+                 DEVICE=eth0
+                 ONBOOT=yes
+
+            or if static
+
+                 BOOTPROTO=static
+                 IPADDR=192.168.61.70
+                 NETMASK=255.255.255.0
+                 DEVICE=eth1
+                 ONBOOT=yes
+
+            then:
+
+            The following grub change is only necessary on systems that do not use ethX naming by
+            default like vmware.
+            #this changes fedora back to using ethX for interface naming network-scripts looks
+             for this nomncature and will fail DHCP otherwise
+            
+            sudo vi /etc/default/grub
+
+                change: GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet"
+                to:     GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet net.ifnames=0 biosdevname=0"
+
+            then:
+
+                sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+
+
+            #This updates dhcp script to dynamically update systemd-resolved on per interface resolver
+            sudo vi /usr/sbin/dhclient-script
+
+            change: if [ -n "${new_domain_name_servers}" ]; then
+                        for nameserver in ${new_domain_name_servers} ; do
+                            echo "nameserver ${nameserver}" >> "${rscf}"
+                        done
+
+            to:     if [ -n "${new_domain_name_servers}" ]; then
+                        for nameserver in ${new_domain_name_servers} ; do
+                            echo "nameserver ${nameserver}" >> "${rscf}"
+                            systemd-resolve --interface "${interface}" --set-dns "${nameserver}"
+                        done
+
            
 
   compile:
