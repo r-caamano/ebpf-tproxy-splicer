@@ -323,7 +323,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     __u16 maxlen = 32; /* max number ip ipv4 prefixes */
 
     /* allow ssh to local system */
-    if(((!local_ip4) || (!local_ip4->ipaddr))  || ((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr))){
+    if(((!local_ip4) || (!local_ip4->ipaddr)) || (tuple->ipv4.daddr == local_ip4->ipaddr)){
        local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
