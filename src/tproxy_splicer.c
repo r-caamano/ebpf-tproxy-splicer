@@ -30,7 +30,6 @@
 #include <stdbool.h>
 #include <linux/tcp.h>
 #include <net/if.h>
-#include <string.h>
 
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
