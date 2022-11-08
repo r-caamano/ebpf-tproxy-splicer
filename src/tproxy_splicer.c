@@ -322,6 +322,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     __u32 mask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 32; /* max number ip ipv4 prefixes */
 
+    /* allow ssh to local system */
     if(((!local_ip4) || (!local_ip4->ipaddr))  || ((local_ip4) && (tuple->ipv4.daddr == local_ip4->ipaddr))){
        local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
