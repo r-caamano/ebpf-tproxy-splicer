@@ -276,7 +276,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool udp=false;
     bool tcp=false;
     bool arp=false;
-    bool local=false;
     int ret;
     int protocol;
 
@@ -324,7 +323,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* allow ssh to local system */
     if(((!local_ip4) || (!local_ip4->ipaddr)) || (tuple->ipv4.daddr == local_ip4->ipaddr)){
-       local = true;
        /* if ip of attached interface found in map only allow ssh to that IP */
        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
@@ -395,7 +393,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             bpf_printk("%s:%d",local_ip4->ifname, protocol);
                             bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                                bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
-                            if(local || (tproxy->port_mapping[port_key].tproxy_port == 0)){
+                            if(tproxy->port_mapping[port_key].tproxy_port == 0){
                                 return TC_ACT_OK;
                             }
                             sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
