@@ -110,7 +110,7 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
             The following grub change is only necessary on systems that do not use ethX naming by
             default like vmware.
             #this changes fedora back to using ethX for interface naming network-scripts looks
-             for this nomncature and will fail DHCP otherwise
+             for this nomenclature and will fail DHCP otherwise
 
             sudo vi /etc/default/grub
 
