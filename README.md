@@ -18,8 +18,6 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         cd repos
         git clone https://github.com/r-caamano/ebpf-tproxy-splicer.git 
         cd ebpf-tproxy-splicer/src
-        
-       
         clang -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
         clang -O2 -Wall -Wextra -o map_update map_update.c
         clang -O2 -Wall -Wextra -o map_delete_elem map_delete_elem.c 
@@ -33,6 +31,22 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
         services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
         initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
+        
+        Run with ziti-router after attaching - 
+        if you want to run with ziti-router build a ziti network and create services as explained at https://openziti.github.io
+        select "Host It Anywhere"
+
+        The router you run with ebpf should be on a separate VM and you will want to build the binary as described in the README.md at 
+        https://github.com/r-caamano/edge/tree/v0.26.10
+        
+        You can then run it with the following command "sudo ziti-router run config.yml"
+
+        Alternativly if you you can also choose to run with CloudZiti Teams and you will want to replace the binary in the 
+        /opt/netfoundry/ziti/ziti-router/ folder i.e.
+
+        zt-router-stop
+        sudo cp $GOPATH/bin/ziti-router /opt/netfoundry/ziti/ziti-router 
+        zt-router-start 
 
   detach:
 
