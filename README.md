@@ -13,17 +13,17 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
             
 
   compile:
-        ```
+        
         mkdir ~/repos
         cd repos
         git clone https://github.com/r-caamano/ebpf-tproxy-splicer.git 
         cd ebpf-tproxy-splicer/src
-        ```
-        ```
+        
+       
         clang -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
         clang -O2 -Wall -Wextra -o map_update map_update.c
         clang -O2 -Wall -Wextra -o map_delete_elem map_delete_elem.c 
-        ```
+       
   attach:
         
         sudo tc qdisc add dev <interface name>  clsact
