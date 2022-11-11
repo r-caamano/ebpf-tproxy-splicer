@@ -7,31 +7,39 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
   prereqs: **Ubuntu 22.04 server** (kernel 5.15 or higher)
 
         sudo apt update
-
         sudo apt upgrade
-
         sudo reboot
-
         sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev
             
 
   compile:
-
+        
+        mkdir ~/repos
+        cd repos
+        git clone https://github.com/r-caamano/ebpf-tproxy-splicer.git 
+        cd ebpf-tproxy-splicer/src
         clang -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
         clang -O2 -Wall -Wextra -o map_update map_update.c
         clang -O2 -Wall -Wextra -o map_delete_elem map_delete_elem.c 
-  
+       
   attach:
         
         sudo tc qdisc add dev <interface name>  clsact
-
         sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec sk_tproxy_splice
-        
         sudo ufw allow in on <interface name> to any
         
         ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
         services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
         initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
+        
+        Test with ziti-router after attaching - 
+        if you want to run with ziti-router build a ziti network and create services as explained at https://openziti.github.io
+        select "Host It Anywhere"
+
+        The router you run with ebpf should be on a separate VM and you will want to build the binary as described in the README.md at 
+        https://github.com/r-caamano/edge/tree/v0.26.10
+        
+        You can then run it with the following command "sudo ziti-router run config.yml"
 
   detach:
 
@@ -68,7 +76,7 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
             <idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: eth0:6
             <idle>-0       [000] dNs3. 23153.458359: bpf_trace_printk: tproxy_mapping->22 to 39643
  
-  Example: Remove prevoius entry from map
+  Example: Remove previous entry from map
 
         Usage: ./map_delete_elem <ip dest address or prefix> <prefix len> <low_port> <protocol id>
         sudo ./map_delete_elem 172.16.240.0 24 5060 17
