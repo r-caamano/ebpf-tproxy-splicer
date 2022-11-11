@@ -32,7 +32,7 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
         initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
         
-        Run with ziti-router after attaching - 
+        Test with ziti-router after attaching - 
         if you want to run with ziti-router build a ziti network and create services as explained at https://openziti.github.io
         select "Host It Anywhere"
 
@@ -40,13 +40,6 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         https://github.com/r-caamano/edge/tree/v0.26.10
         
         You can then run it with the following command "sudo ziti-router run config.yml"
-
-        Alternatively you can also choose to run with CloudZiti Teams and you will want to replace the binary in the 
-        /opt/netfoundry/ziti/ziti-router/ folder i.e.
-
-        zt-router-stop
-        sudo cp $GOPATH/bin/ziti-router /opt/netfoundry/ziti/ziti-router 
-        zt-router-start 
 
   detach:
 
