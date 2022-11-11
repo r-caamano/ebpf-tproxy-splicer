@@ -38,6 +38,10 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
 
         The router you run with ebpf should be on a separate VM and you will want to build the binary as described in the README.md at 
         https://github.com/r-caamano/edge/tree/v0.26.10
+       
+        Copy the user space map programs to folder in $PATH i.e
+        sudo cp map_update /usr/bin
+        sudo cp map_delete_elem  /usr/bin
         
         You can then run it with the following command "sudo ziti-router run config.yml"
 
