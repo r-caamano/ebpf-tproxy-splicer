@@ -41,7 +41,7 @@ system calls to external binaries.  Also note this is eBPF tc based so intercept
         
         You can then run it with the following command "sudo ziti-router run config.yml"
 
-        Alternativly if you can also choose to run with CloudZiti Teams and you will want to replace the binary in the 
+        Alternatively you can also choose to run with CloudZiti Teams and you will want to replace the binary in the 
         /opt/netfoundry/ziti/ziti-router/ folder i.e.
 
         zt-router-stop
