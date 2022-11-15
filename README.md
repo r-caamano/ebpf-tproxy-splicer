@@ -4,7 +4,7 @@ This is a project to develop an eBPF program that utilizes tc-bpf to act as a st
 system calls to external binaries.  Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
 For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incomming udp/tcp traffic to any application with a listening socket(s) bound to the loopback IP. 
+Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP.
 
   prereqs: **Ubuntu 22.04 server** (kernel 5.15 or higher)
 
