@@ -1,6 +1,6 @@
 # Intro:
 
-This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete_elem for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via
+This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via
 system calls to external binaries.  Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
 For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
@@ -22,12 +22,12 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
         cd ebpf-tproxy-splicer/src
         clang -g -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
         clang -O2 -Wall -Wextra -o map_update map_update.c
-        clang -O2 -Wall -Wextra -o map_delete_elem map_delete_elem.c 
+        clang -O2 -Wall -Wextra -o map_delete map_delete.c 
        
   attach:
         
         sudo tc qdisc add dev <interface name>  clsact
-        sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec sk_tproxy_splice
+        sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
         sudo ufw allow in on <interface name> to any
         
         ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
@@ -43,7 +43,13 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
        
         Copy the user space map programs to folder in $PATH i.e
         sudo cp map_update /usr/bin
-        sudo cp map_delete_elem  /usr/bin
+        sudo cp map_delete  /usr/bin
+        
+        In the router config.yml set tunnel mode to ebpf i.e.
+        
+        - binding: tunnel
+          options:
+             mode: ebpf
         
         You can then run it with the following command "sudo ziti-router run config.yml"
 
@@ -84,8 +90,8 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
  
   Example: Remove previous entry from map
 
-        Usage: ./map_delete_elem <ip dest address or prefix> <prefix len> <low_port> <protocol id>
-        sudo ./map_delete_elem 172.16.240.0 24 5060 17
+        Usage: ./map_delete <ip dest address or prefix> <prefix len> <low_port> <protocol id>
+        sudo ./map_delete 172.16.240.0 24 5060 17
 
   Additional Distro testing:
 

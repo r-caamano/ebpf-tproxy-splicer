@@ -265,7 +265,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
 }
 
 //ebpf tc code
-SEC("sk_tproxy_splice")
+SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple, sockcheck = {0};
     struct bpf_sock *sk; 
