@@ -39,11 +39,32 @@
 #include <string.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include <argp.h>
 
 
 
 #define MAX_INDEX_ENTRIES  50 //MAX port ranges per prefix 
 #define MAX_TABLE_SIZE  65536 //PORT MApping table size
+
+static bool add = false;
+static bool delete = false;
+static bool list = false;
+static bool lpt = false;
+static bool hpt = false;
+static bool tpt = false;
+static bool pl = false;
+static bool cd = false;
+static bool prot = false;
+static struct in_addr cidr;
+static unsigned short plen;
+static unsigned short low_port;
+static unsigned short high_port;
+static unsigned short tproxy_port;
+static char* program_name;
+static __u8 protocol;
+static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
+static char doc[] = "map_update -- ebpf mapping tool";
+const char *argp_program_version = "map_update 1.0";
 
 
 
@@ -145,24 +166,52 @@ void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_t
     memcpy((void *)&tuple->port_mapping[index],(void *)mapping,sizeof(struct tproxy_port_mapping));
 }
 
-int main(int argc, char **argv){
-    /* Make sure user enters correct number of agrguments */
-    if (argc < 7) {
-        fprintf(stderr, "Usage: %s <ip dest address or prefix> <prefix length> <low_port> <high_port> <tproxy_port> <protocol id>\n", argv[0]);
-        exit(0);
+void remove_index(__u16 index, struct tproxy_tuple *tuple){
+    bool found = false;
+    int x =0;
+    for (; x < tuple->index_len ; x++){
+        if(tuple->index_table[x] == index){
+            found = true;
+            break;
+        }
     }
+    if(found){
+        for(; x < tuple->index_len -1;x++){
+            tuple->index_table[x] = tuple->index_table[x+1];
+        }
+        tuple->index_len -= 1;
+        memset((void *)&tuple->port_mapping[index],0,sizeof(struct tproxy_port_mapping));
+        if (tuple->port_mapping[index].low_port == index){
+            printf("mapping[%d].low_port = %d\n", index,ntohs(tuple->port_mapping[index].low_port));
+        }
+        else{
+            printf("mapping[%d] removed\n",ntohs(index));
+        }
+    }else{
+        printf("mapping[%d] does not exist\n",ntohs(index));
+    }
+}
+
+void usage(char* message){
+    fprintf(stderr, "%s : %s\n", program_name,message);
+    fprintf(stderr, "Usage: map_update -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
+    fprintf(stderr, "       map_update -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
+    fprintf(stderr, "       map_update -V\n");
+    fprintf(stderr, "       map_update --help\n");
+    exit(1);
+}
+
+void map_insert(){
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr if_map;
     /*path to pinned ifindex_ip_map*/
     const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
-
-    __u8 protocol = proto2u8(argv[6]);
     struct ifaddrs *addrs;
 
     /* call function to get a linked list of interface structs from system */
     if(getifaddrs(&addrs)==-1){
         printf("can't get addrs");
-        return -1;
+        exit(1);
     }
     struct ifaddrs *address = addrs;
     /* open BPF ifindex_ip_map */
@@ -220,13 +269,7 @@ int main(int argc, char **argv){
     freeifaddrs(addrs);
     
     union bpf_attr map;
-    const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-    struct in_addr ip;
-    if(!inet_aton(argv[1], &ip)){
-       printf("Invalid IP Address: %s\n",argv[1]);
-       exit(1);
-    }
-    struct tproxy_key key = {ip.s_addr, len2u16(argv[2]),protocol};
+    struct tproxy_key key = {cidr.s_addr, plen, protocol};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
@@ -245,12 +288,12 @@ int main(int argc, char **argv){
     map.value = (uint64_t)&orule;
     /* make system call to lookup prefix/mask in map */
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    unsigned short index = htons(port2s(argv[3]));
+    unsigned short index = htons(low_port);
     /* pupulate a struct for a port mapping */
     struct tproxy_port_mapping port_mapping = {
-        htons(port2s(argv[3])),
-        htons(port2s(argv[4])),
-        htons(port2s(argv[5])),
+        htons(low_port),
+        htons(high_port),
+        htons(tproxy_port),
         0x0100007f
     };
     /* 
@@ -294,4 +337,168 @@ int main(int argc, char **argv){
         exit(1);
     }
     close(fd);
+
+}
+
+void map_delete(){
+    union bpf_attr map;
+    struct tproxy_key key = {cidr.s_addr, plen,protocol};
+    struct tproxy_tuple orule;
+    //Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t) path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1){
+	printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&orule;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    unsigned short index = htons(low_port);
+    if(lookup){
+       printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+       exit(1);
+    }else{
+        printf("lookup success\n");
+	if(protocol == IPPROTO_UDP){
+            printf("Attempting to remove UDP mapping\n");
+        }else if(protocol == IPPROTO_TCP){
+            printf("Attempting to remove TCP mapping\n");
+        }else{
+            printf("Unsupported Protocol\n");
+            exit(1);
+        }
+        remove_index(index, &orule);
+        if(orule.index_len == 0){
+            memset(&map, 0, sizeof(map));
+            map.pathname = (uint64_t) path;
+            map.bpf_fd = 0;
+            int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+            if (fd == -1){
+                printf("BPF_OBJ_GET: %s\n", strerror(errno));
+                exit(1);
+            }
+            //delete element with specified key
+            map.map_fd = fd;
+            map.key = (uint64_t) &key;
+            int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+            if (result){
+                printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+                exit(1);
+            }else{
+                printf("Last Element: Hash Entry Deleted\n");
+                exit(0);
+            }
+        }
+    }
+    map.value = (uint64_t)&orule;
+    map.flags = BPF_ANY;
+    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
+    if (result){
+	printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        exit(1);
+    }
+    close(fd);
+
+}
+
+//commandline parser options
+static struct argp_option options[] = {
+    { "insert", 'I',NULL, 0, "Insert map rule" ,0},
+    { "delete", 'D',NULL, 0, "Delete map rule" ,0},
+    { "list", 'L',NULL, 0, "List map rules" ,0},
+    { "cidr-block", 'c',"",0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete>", 0},
+    { "prefix-len", 'm',"",0, "Set prefix length (1-32) <mandatory>", 0},
+    { "low-port", 'l',"",0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
+    { "high-port", 'h',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
+    { "tproxy-port", 't',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
+    { "protocol", 'p',"",0, "Set protocol number (6 or 17) <mandatory insert/delete>" ,0},
+    {0}
+};
+
+static error_t parse_opt (int key, char *arg, struct argp_state *state){
+    program_name = state->name;
+    switch(key){
+        case 'I':
+            add = true;
+            break;
+        case 'D':
+            delete = true;
+            break;
+        case 'L':
+            list = true;
+            break;
+        case 'c':
+            if(!inet_aton(arg, &cidr)){
+                printf("Invalid IP Address: %s\n",arg);
+                exit(1);
+            }
+            cd = true;
+            break;
+        case 'm':
+            plen = len2u16(arg);
+            pl = true;
+            break;
+        case 'l':
+            low_port = port2s(arg);
+            lpt = true;
+            break;
+        case 'h':
+            high_port = port2s(arg);
+            hpt = true;
+            break;
+        case 't':
+            tproxy_port = port2s(arg);
+            tpt = true;
+            break;
+        case 'p':
+            protocol = proto2u8(arg);
+            prot = true;
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
+    }
+  return 0;
+}
+
+struct argp argp = { options, parse_opt, 0, doc , 0, 0, 0};
+
+int main(int argc, char **argv){
+    argp_parse (&argp, argc, argv, 0, 0, 0);
+
+    if(add){
+        if(!cd){
+            usage("Missing argument -c, --cider-block");
+        } else if(!pl){
+            usage("Missing argument -m, --prefix-len");
+        }else if(!lpt){
+            usage("Missing argument -l, --low-port");
+        }else if(!hpt){
+            usage("Missing argument -h, --high-port");
+        }else if(!tpt){
+            usage("Missing argument -t, --tproxy-port");
+        }else if(!prot){
+            usage("Missing argument -p, --protocol");
+        }else{
+            map_insert();
+        }
+    }else if(delete){
+        if(!cd){
+            usage("Missing argument -c, --cider-block");
+        } else if(!pl){
+            usage("Missing argument -m, --prefix-len");
+        }else if(!lpt){
+            usage("Missing argument -l, --low-port");
+        }else if(!prot){
+            usage("Missing argument -p, --protocol");
+        }else{
+            map_delete();
+        }
+    }else{
+        usage("No arguments specified");
+    }
 }
