@@ -192,10 +192,20 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple){
     }
 }
 
+void print_rule(struct tproxy_tuple *tuple){
+    int x =0;
+    for (; x < tuple->index_len ; x++){
+        printf("TPROXY\t %d\tanywhere\t%s/%d\t\t\tdpts:%d:%d\
+        TPROXY redirect 127.0.0.1:%d\n",protocol,inet_ntoa(cidr),plen,ntohs(tuple->port_mapping[tuple->index_table[x]].low_port), 
+        ntohs(tuple->port_mapping[tuple->index_table[x]].high_port), ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+    }
+}
+
 void usage(char* message){
     fprintf(stderr, "%s : %s\n", program_name,message);
     fprintf(stderr, "Usage: map_update -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
     fprintf(stderr, "       map_update -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
+    fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
     fprintf(stderr, "       map_update -V\n");
     fprintf(stderr, "       map_update --help\n");
     exit(1);
@@ -351,7 +361,7 @@ void map_delete(){
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1){
-	printf("BPF_OBJ_GET: %s \n", strerror(errno));
+	    printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
     map.map_fd = fd;
@@ -403,7 +413,32 @@ void map_delete(){
         exit(1);
     }
     close(fd);
+}
 
+void map_list(){
+    union bpf_attr map;
+    struct tproxy_key key = {cidr.s_addr, plen,protocol};
+    struct tproxy_tuple orule;
+    //Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t) path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1){
+	    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+    if(!lookup){
+        printf("target\tprot\t source\t\t destination\t\t\tmapping:\n");
+        print_rule(&orule);
+    }
+    close(fd);
 }
 
 //commandline parser options
@@ -411,12 +446,12 @@ static struct argp_option options[] = {
     { "insert", 'I',NULL, 0, "Insert map rule" ,0},
     { "delete", 'D',NULL, 0, "Delete map rule" ,0},
     { "list", 'L',NULL, 0, "List map rules" ,0},
-    { "cidr-block", 'c',"",0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete>", 0},
-    { "prefix-len", 'm',"",0, "Set prefix length (1-32) <mandatory>", 0},
+    { "cidr-block", 'c',"",0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    { "prefix-len", 'm',"",0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
     { "low-port", 'l',"",0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     { "high-port", 'h',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     { "tproxy-port", 't',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
-    { "protocol", 'p',"",0, "Set protocol number (6 or 17) <mandatory insert/delete>" ,0},
+    { "protocol", 'p',"",0, "Set protocol number (6 or 17) <mandatory insert/delete/list>" ,0},
     {0}
 };
 
@@ -465,6 +500,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state){
   return 0;
 }
 
+
+
 struct argp argp = { options, parse_opt, 0, doc , 0, 0, 0};
 
 int main(int argc, char **argv){
@@ -497,6 +534,16 @@ int main(int argc, char **argv){
             usage("Missing argument -p, --protocol");
         }else{
             map_delete();
+        }
+    }else if(list){
+        if(!cd){
+            usage("Missing argument -c, --cider-block");
+        } else if(!pl){
+            usage("Missing argument -m, --prefix-len");
+        }else if(!prot){
+            usage("Missing argument -p, --protocol");
+        }else{
+           map_list();
         }
     }else{
         usage("No arguments specified");
