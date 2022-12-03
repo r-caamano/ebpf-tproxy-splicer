@@ -64,7 +64,7 @@ static char* program_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "map_update -- ebpf mapping tool";
-const char *argp_program_version = "map_update 1.0";
+const char *argp_program_version = "map_update v0.1.0";
 
 
 
@@ -127,7 +127,7 @@ unsigned short port2s(char *port){
     return usint;
 }
 
-/* convert string protocol number to __u8 */
+/* convert string protocol to __u8 */
 __u8 proto2u8(char *protocol){
     char *endPtr;
     int32_t tmpint = strtol(protocol,&endPtr,10);
@@ -450,8 +450,8 @@ static struct argp_option options[] = {
     { "prefix-len", 'm',"",0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
     { "low-port", 'l',"",0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     { "high-port", 'h',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
-    { "tproxy-port", 't',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
-    { "protocol", 'p',"",0, "Set protocol number (6 or 17) <mandatory insert/delete/list>" ,0},
+    { "tproxy-port", 't',"",0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
+    { "protocol", 'p',"",0, "Set protocol (tcp or udp) <mandatory insert/delete/list>" ,0},
     {0}
 };
 
@@ -469,7 +469,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state){
             break;
         case 'c':
             if(!inet_aton(arg, &cidr)){
-                printf("Invalid IP Address: %s\n",arg);
+                fprintf(stderr,"Invalid IP Address for arg -p, --protocol: %s\n",arg);
+                fprintf(stderr, "%s --help for more info\n", program_name);
                 exit(1);
             }
             cd = true;
@@ -491,7 +492,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state){
             tpt = true;
             break;
         case 'p':
-            protocol = proto2u8(arg);
+            if((strcmp("tcp", arg) == 0) || (strcmp("TCP", arg) == 0)){
+                protocol = IPPROTO_TCP;
+            }else if((strcmp("udp", arg) == 0) || (strcmp("UDP", arg) == 0)){
+                protocol = IPPROTO_UDP;
+            }else{
+                fprintf(stderr, "Invalid protocol for arg -p,--protocol <tcp|udp>\n");
+                fprintf(stderr, "%s --help for more info\n", program_name);
+                exit(1);
+            }
             prot = true;
             break;
         default:

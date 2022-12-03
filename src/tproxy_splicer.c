@@ -191,7 +191,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
 		}
         /* ip options not allowed */
         if (iph->ihl != 5){
-		    bpf_printk("no options allowed");
+		    //bpf_printk("no options allowed");
             return NULL;
         }
         /* get ip protocol type */
@@ -389,7 +389,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                          */
                         if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                          && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
-                            bpf_printk("%s:%d",local_ip4->ifname, protocol);
+                            bpf_printk("%s : protocol_id=%d",local_ip4->ifname, protocol);
                             bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                                bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port)); 
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){

@@ -1,7 +1,6 @@
 # Intro:
 
-This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti.  In a later release I will be working on writing the MAP update/delete directly via GO rather than via
-system calls to external binaries.  Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
+This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
 For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
 Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP.
@@ -59,15 +58,13 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
 
   Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
-        Usage: ./map_update <ip dest address or prefix> <prefix length> <low_port> <high_port> <tproxy_port> <protocol id>
-        sudo ./map_update 172.16.240.0 24 5060 5060 58997 17 
+        Usage: ./map_update -I <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
+        sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp 
   
   Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1 with 
   tproxy_port set to 0 signifying local connect rule
   
-        sudo ./map_update 10.1.1.1 32 443 443 0 6  
-
-        
+        sudo ./map_update -I -c 10.250.50.27 -m 32 -l 8000 -h 8000 -t 0 -p tcp  
  
   Example: Monitor ebpf trace messages
 
@@ -75,23 +72,23 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
            
            ziggy@ebpf-router:~$ sudo cat /sys/kernel/debug/tracing/trace_pipe
             <idle>-0       [000] dNs3. 23100.582441: bpf_trace_printk: tproxy_mapping->5060 to 33626
-            <idle>-0       [000] d.s3. 23101.365172: bpf_trace_printk: eth1:17
+            <idle>-0       [000] d.s3. 23101.365172: bpf_trace_printk: ens33 : protocol_id=17
             <idle>-0       [000] dNs3. 23101.365205: bpf_trace_printk: tproxy_mapping->5060 to 33626
-            <idle>-0       [000] d.s3. 23101.725048: bpf_trace_printk: eth1:17
+            <idle>-0       [000] d.s3. 23101.725048: bpf_trace_printk: ens33 : protocol_id=17
             <idle>-0       [000] dNs3. 23101.725086: bpf_trace_printk: tproxy_mapping->5060 to 33626
-            <idle>-0       [000] d.s3. 23102.389608: bpf_trace_printk: eth1:17
+            <idle>-0       [000] d.s3. 23102.389608: bpf_trace_printk: ens33 : protocol_id=17
             <idle>-0       [000] dNs3. 23102.389644: bpf_trace_printk: tproxy_mapping->5060 to 33626
-            <idle>-0       [000] d.s3. 23102.989964: bpf_trace_printk: eth1:17
+            <idle>-0       [000] d.s3. 23102.989964: bpf_trace_printk: ens33 : protocol_id=17
             <idle>-0       [000] dNs3. 23102.989997: bpf_trace_printk: tproxy_mapping->5060 to 33626
-            <idle>-0       [000] d.s3. 23138.910079: bpf_trace_printk: eth1:6
+            <idle>-0       [000] d.s3. 23138.910079: bpf_trace_printk: ens33 : protocol_id=6
             <idle>-0       [000] dNs3. 23138.910113: bpf_trace_printk: tproxy_mapping->22 to 39643
-            <idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: eth0:6
+            <idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: ens33 : protocol_id=6
             <idle>-0       [000] dNs3. 23153.458359: bpf_trace_printk: tproxy_mapping->22 to 39643
  
   Example: Remove previous entry from map
 
-        Usage: ./map_delete <ip dest address or prefix> <prefix len> <low_port> <protocol id>
-        sudo ./map_delete 172.16.240.0 24 5060 17
+        Usage: ./map_update -I -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
+        sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 
   Additional Distro testing:
 
