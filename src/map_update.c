@@ -61,6 +61,7 @@ static unsigned short low_port;
 static unsigned short high_port;
 static unsigned short tproxy_port;
 static char* program_name;
+static char* protocol_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "map_update -- ebpf mapping tool";
@@ -195,8 +196,8 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple){
 void print_rule(struct tproxy_tuple *tuple){
     int x =0;
     for (; x < tuple->index_len ; x++){
-        printf("TPROXY\t %d\tanywhere\t%s/%d\t\t\tdpts:%d:%d\
-        TPROXY redirect 127.0.0.1:%d\n",protocol,inet_ntoa(cidr),plen,ntohs(tuple->port_mapping[tuple->index_table[x]].low_port), 
+        printf("TPROXY\t%s\tanywhere\t%s/%d\t\t\tdpts:%d:%d\
+        TPROXY redirect 127.0.0.1:%d\n",protocol_name,inet_ntoa(cidr),plen,ntohs(tuple->port_mapping[tuple->index_table[x]].low_port), 
         ntohs(tuple->port_mapping[tuple->index_table[x]].high_port), ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
     }
 }
@@ -435,7 +436,8 @@ void map_list(){
     int lookup = 0;
     lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
     if(!lookup){
-        printf("target\tprot\t source\t\t destination\t\t\tmapping:\n");
+        printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
+        printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
         print_rule(&orule);
     }
     close(fd);
@@ -501,6 +503,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state){
                 fprintf(stderr, "%s --help for more info\n", program_name);
                 exit(1);
             }
+            protocol_name = arg;
             prot = true;
             break;
         default:

@@ -1,6 +1,6 @@
 # Intro:
 
-This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.10 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
+This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update/map_delete for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.11 assumes map_update and map_delete binaries are in ziti-the router binaries search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
 For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
 Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP.
@@ -64,7 +64,7 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
   Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1 with 
   tproxy_port set to 0 signifying local connect rule
   
-        sudo ./map_update -I -c 10.250.50.27 -m 32 -l 8000 -h 8000 -t 0 -p tcp  
+        sudo ./map_update -I -c 10.250.50.27 -m 32 -l 443 -h 443 -t 0 -p tcp  
  
   Example: Monitor ebpf trace messages
 
@@ -89,6 +89,18 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
 
         Usage: ./map_update -I -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
         sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
+
+  Example: List rules in map for a given prefix and protocol
+
+        Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
+        sudo ./map_update -L -c 172.16.240.0 -m 24 -p udp
+
+        target	proto	source		destination			mapping:
+        ------	-----	------		-----------			-------------------------------------------------------
+        TPROXY	udp	anywhere	      172.16.240.0/24		dpts:5060:5060        TPROXY redirect 127.0.0.1:58997
+        TPROXY	udp	anywhere	      172.16.240.0/24		dpts:10000:20000        TPROXY redirect 127.0.0.1:58997
+
+
 
   Additional Distro testing:
 
