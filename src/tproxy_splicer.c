@@ -413,7 +413,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                         }
                     }
             }
-            /*algorithm used to calucate mask while traversing
+            /*algorithm used to calculate mask while traversing
             each octet.
             */
             if(mask == 0x00ffffff){
