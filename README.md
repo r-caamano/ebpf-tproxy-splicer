@@ -85,7 +85,7 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
  
   Example: Remove previous entry from map
 
-        Usage: ./map_update -I -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
+        Usage: ./map_update -D -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
         sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 
   Example: List rules in map for a given prefix and protocol
