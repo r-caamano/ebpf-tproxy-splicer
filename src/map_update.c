@@ -140,6 +140,17 @@ __u8 proto2u8(char *protocol){
     return usint;
 }
 
+/*convert integer ip to dotted decimal string*/
+char* nitoa(uint32_t address){
+    char * ipaddr = malloc(16);
+    int b0 = (address & 0xff000000) >> 24;
+    int b1 = (address & 0xff0000) >> 16;
+    int b2 = (address & 0xff00) >> 8;
+    int b3 =  address & 0xff;
+    sprintf(ipaddr,"%d.%d.%d.%d",b0,b1,b2,b3);
+    return ipaddr;
+}
+
 /* convert prefix string to __u16 */
 __u16 len2u16(char *len){
     char *endPtr;
@@ -193,13 +204,31 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple){
     }
 }
 
-void print_rule(struct tproxy_tuple *tuple){
+void print_rule(struct tproxy_key *key,struct tproxy_tuple *tuple){
+    char *proto;
+    if(key->protocol == IPPROTO_UDP){
+        proto="udp";
+    }else if (key->protocol == IPPROTO_TCP){
+        proto="tcp";
+    }
+    else{
+        proto="unknown";
+    }
+    char *prefix = nitoa(ntohl(key->dst_ip));
+    char *cidr_block = malloc(19);
+    sprintf(cidr_block,"%s/%d", prefix, key->prefix_len);
+    char *dpts = malloc(17);
+    
     int x =0;
     for (; x < tuple->index_len ; x++){
-        printf("TPROXY\t%s\tanywhere\t%s/%d\t\t\tdpts:%d:%d\
-        TPROXY redirect 127.0.0.1:%d\n",protocol_name,inet_ntoa(cidr),plen,ntohs(tuple->port_mapping[tuple->index_table[x]].low_port), 
-        ntohs(tuple->port_mapping[tuple->index_table[x]].high_port), ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+        sprintf(dpts,"dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
+        ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
+        printf("TPROXY\t%s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n",proto,cidr_block,
+        dpts,ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
     }
+    free(dpts);
+    free(cidr_block);
+    free(prefix);
 }
 
 void usage(char* message){
@@ -207,6 +236,8 @@ void usage(char* message){
     fprintf(stderr, "Usage: map_update -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
     fprintf(stderr, "       map_update -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
     fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
+    fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length>\n");
+    fprintf(stderr, "       map_update -L\n");
     fprintf(stderr, "       map_update -V\n");
     fprintf(stderr, "       map_update --help\n");
     exit(1);
@@ -427,18 +458,74 @@ void map_list(){
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1){
-	    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+            printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
     map.map_fd = fd;
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-    if(!lookup){
-        printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
-        printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
-        print_rule(&orule);
+    printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
+    printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
+    if(prot){
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if(!lookup){
+            print_rule((struct tproxy_key *)map.key,&orule);
+        }
+    }else{
+        int vprot[] = {IPPROTO_UDP,IPPROTO_TCP};
+        int x = 0;
+        for(; x < 2; x++){
+            struct tproxy_key vkey = {cidr.s_addr, plen,vprot[x]};
+            map.key = (uint64_t)&vkey;
+            lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+            if(!lookup){
+                print_rule((struct tproxy_key *)map.key,&orule);
+            }
+        }
+
+    }
+
+    close(fd);
+}
+
+void map_list_all(){
+    union bpf_attr map;
+    struct tproxy_key *key = NULL;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    //Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t) path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1){
+	    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    int ret = 0;
+    printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
+    printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
+    while(true){
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        //printf("ret=%d\n",ret);
+        if(ret == -1){
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if(!lookup){
+            print_rule(&current_key,&orule);
+        }else{
+            printf("Not Found\n");
+        }
+        map.key = (uint64_t)&current_key;
     }
     close(fd);
 }
@@ -453,7 +540,7 @@ static struct argp_option options[] = {
     { "low-port", 'l',"",0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     { "high-port", 'h',"",0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     { "tproxy-port", 't',"",0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
-    { "protocol", 'p',"",0, "Set protocol (tcp or udp) <mandatory insert/delete/list>" ,0},
+    { "protocol", 'p',"",0, "Set protocol (tcp or udp) <mandatory insert/delete>" ,0},
     {0}
 };
 
@@ -548,12 +635,12 @@ int main(int argc, char **argv){
             map_delete();
         }
     }else if(list){
-        if(!cd){
+        if(!cd && !pl){
+            map_list_all();
+        }else if(!cd){
             usage("Missing argument -c, --cider-block");
         } else if(!pl){
             usage("Missing argument -m, --prefix-len");
-        }else if(!prot){
-            usage("Missing argument -p, --protocol");
         }else{
            map_list();
         }
