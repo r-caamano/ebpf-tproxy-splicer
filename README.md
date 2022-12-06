@@ -3,7 +3,9 @@
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for the services defined and to instead call map_update for tproxy redirection. example edge code at https://github.com/r-caamano/edge/tree/v0.26.11 assumes map_update binary is in the ziti-router's search path and the eBPF program is loaded via linux tc command per instructions below.  Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to.  To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is running on.
 For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP.
+Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP.  Destination IP or Subnet must be bound to an existing interface 
+on system in order to intercept traffic. openziti binds intercept addresses/prefixes to the lo interface
+i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host
 
   prereqs: **Ubuntu 22.04 server** (kernel 5.15 or higher)
 
@@ -88,16 +90,42 @@ Note: While this program was written with OpenZiti edge-routers in mind it can b
         Usage: ./map_update -D -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
         sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 
+  
+  Example: List all rules in map 
+
+        Usage: ./map_update -L
+        sudo ./map_update -L
+
+            target	proto	source		destination			mapping:
+            ------	-----	------		-----------			-------------------------------------------------------
+            TPROXY	tcp	anywhere	      10.0.0.16/28            dpts=22:22       	TPROXY redirect 127.0.0.1:33381
+            TPROXY	tcp	anywhere	      10.0.0.16/28            dpts=30000:40000 	TPROXY redirect 127.0.0.1:33381
+            TPROXY	udp	anywhere	      172.20.1.0/24           dpts=5000:10000  	TPROXY redirect 127.0.0.1:59394
+            TPROXY	tcp	anywhere	      172.16.1.0/24           dpts=22:22       	TPROXY redirect 127.0.0.1:33381
+            TPROXY	tcp	anywhere	      172.16.1.0/24           dpts=30000:40000 	TPROXY redirect 127.0.0.1:33381
+            TPROXY	udp	anywhere	      192.168.3.0/24          dpts=5:7         	TPROXY redirect 127.0.0.1:0
+            TPROXY	udp	anywhere	      192.168.100.100/32      dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
+            TPROXY	tcp	anywhere	      192.168.100.100/32      dpts=60000:65535 	TPROXY redirect 127.0.0.1:0
+            TPROXY	udp	anywhere	      192.168.0.3/32          dpts=5000:10000  	TPROXY redirect 127.0.0.1:59394
+
   Example: List rules in map for a given prefix and protocol
 
         Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
-        sudo ./map_update -L -c 172.16.240.0 -m 24 -p udp
+        sudo map_update -L -c 100.168.100.100 -m 32 -p udp
 
-        target	proto	source		destination			mapping:
-        ------	-----	------		-----------			-------------------------------------------------------
-        TPROXY	udp	anywhere	      172.16.240.0/24		dpts:5060:5060        TPROXY redirect 127.0.0.1:58997
-        TPROXY	udp	anywhere	      172.16.240.0/24		dpts:10000:20000        TPROXY redirect 127.0.0.1:58997
+            target	proto	source		destination			mapping:
+            ------	-----	------		-----------			-------------------------------------------------------
+            TPROXY	udp	anywhere	      192.168.100.100/32      dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
 
+  Example: List rules in map for a given prefix
+
+        Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
+        sudo map_update -L -c 192.168.100.100 -m 32
+
+            target	proto	source		destination			mapping:
+            ------	-----	------		-----------			-------------------------------------------------------
+            TPROXY	udp	anywhere	192.168.100.100/32             dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
+            TPROXY	tcp	anywhere	192.168.100.100/32             dpts=60000:65535 	TPROXY redirect 127.0.0.1:0
 
 
   Additional Distro testing:
