@@ -322,7 +322,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* allow ssh to local system */
     if(((!local_ip4) || (!local_ip4->ipaddr)) || (tuple->ipv4.daddr == local_ip4->ipaddr)){
-       /* if ip of attached interface found in map only allow ssh to that IP */
        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
        }
@@ -426,7 +425,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 exponent=0;
             }
             if(mask == 0x00000080){
-		break;
+	        break;
             }
             if((mask >= 0x80ffffff) && (exponent >= 24)){
                 mask = mask - (1 << exponent);
