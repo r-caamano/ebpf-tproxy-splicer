@@ -91,7 +91,7 @@ detach:
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
 
-Usage: ./map_update -I <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
+Usage: ./map_update -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
 
   ```
   sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
@@ -130,7 +130,7 @@ Example: Monitor ebpf trace messages
 ````
 Example: Remove previous entry from map
 
-Usage: ./map_update -D -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
+Usage: ./map_update -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
 
   ```
   sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
@@ -159,7 +159,7 @@ Usage: ./map_update -L
 
 Example: List rules in map for a given prefix and protocol
 
-Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
+Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
   ```     
   sudo map_update -L -c 100.168.100.100 -m 32 -p udp
@@ -172,7 +172,7 @@ Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protoc
 Example: List rules in map for a given prefix
 
 
-Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
+Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
   ```
   sudo map_update -L -c 192.168.100.100 -m 32
