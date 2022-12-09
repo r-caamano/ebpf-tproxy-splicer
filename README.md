@@ -105,7 +105,7 @@ Example: Insert FW rule for local router tcp listen port 443 where local router'
 with tproxy_port set to 0 signifying local connect rule
 
   ```
-  sudo ./map_update -I -c 10.250.50.27 -m 32 -l 443 -h 443 -t 0 -p tcp  
+  sudo ./map_update -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
   ```
 
 Example: Monitor ebpf trace messages
