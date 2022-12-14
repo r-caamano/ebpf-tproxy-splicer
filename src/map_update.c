@@ -297,8 +297,13 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple)
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
                 ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
-        printf("TPROXY\t%s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", proto, cidr_block,
+        if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
+            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+        }else{
+            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
+               dpts, "PASSTHRU",cidr_block);
+        }
     }
     free(dpts);
     free(cidr_block);
@@ -589,8 +594,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
-    printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
     if (prot)
     {
         lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
@@ -640,8 +645,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("target\tproto\tsource\t\tdestination\t\t\tmapping:\n");
-    printf("------\t-----\t------\t\t-----------\t\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));

@@ -144,30 +144,30 @@ Usage: ./map_update -L
   sudo ./map_update -L
   ```
   ```
-  target	proto	source		destination			mapping:
-  ------	-----	------		-----------			-------------------------------------------------------
-  TPROXY	tcp	anywhere	10.0.0.16/28                    dpts=22:22       	TPROXY redirect 127.0.0.1:33381
-  TPROXY	tcp	anywhere	10.0.0.16/28                    dpts=30000:40000 	TPROXY redirect 127.0.0.1:33381
-  TPROXY	udp	anywhere	172.20.1.0/24                   dpts=5000:10000  	TPROXY redirect 127.0.0.1:59394
-  TPROXY	tcp	anywhere	172.16.1.0/24                   dpts=22:22       	TPROXY redirect 127.0.0.1:33381
-  TPROXY	tcp	anywhere	172.16.1.0/24                   dpts=30000:40000 	TPROXY redirect 127.0.0.1:33381
-  TPROXY	udp	anywhere	192.168.3.0/24                  dpts=5:7         	TPROXY redirect 127.0.0.1:0
-  TPROXY	udp	anywhere	192.168.100.100/32              dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
-  TPROXY	tcp	anywhere	192.168.100.100/32              dpts=60000:65535 	TPROXY redirect 127.0.0.1:0
-  TPROXY	udp	anywhere	192.168.0.3/32                  dpts=5000:10000  	TPROXY redirect 127.0.0.1:59394
+  target	   proto	source		  destination	            mapping:
+  ------	   -----	--------	  ------------------	    ---------------------------------------------------------
+  TPROXY	   tcp	        anywhere	  10.0.0.16/28              dpts=22:22       	        TPROXY redirect 127.0.0.1:33381
+  TPROXY	   tcp	        anywhere	  10.0.0.16/28              dpts=30000:40000 	        TPROXY redirect 127.0.0.1:33381
+  TPROXY	   udp	        anywhere	  172.20.1.0/24             dpts=5000:10000  	        TPROXY redirect 127.0.0.1:59394
+  TPROXY	   tcp	        anywhere	  172.16.1.0/24             dpts=22:22       	        TPROXY redirect 127.0.0.1:33381
+  TPROXY	   tcp	        anywhere	  172.16.1.0/24             dpts=30000:40000 	        TPROXY redirect 127.0.0.1:33381
+  PASSTHRU	   udp	        anywhere	  192.168.3.0/24            dpts=5:7         	        PASSTHRU to 192.168.3.0/24 
+  PASSTHRU	   udp	        anywhere	  192.168.100.100/32        dpts=50000:60000 	        PASSTHRU to 192.168.100.100/32
+  PASSTHRU	   tcp	        anywhere	  192.168.100.100/32        dpts=60000:65535 	        PASSTHRU to 192.168.100.100/32
+  TPROXY	   udp	        anywhere	  192.168.0.3/32            dpts=5000:10000  	        TPROXY redirect 127.0.0.1:59394
+  PASSTHRU         tcp          anywhere          192.168.100.100/32        dpts=60000:65535            PASSTHRU to 192.168.100.100/32
   ```
-
 Example: List rules in map for a given prefix and protocol
 
 Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
   ```     
-  sudo map_update -L -c 100.168.100.100 -m 32 -p udp
+  sudo map_update -L -c 192.168.100.100 -m 32 -p udp
   ```
   ```     
-  target	proto	source		destination			mapping:
-  ------	-----	------		-----------			-------------------------------------------------------
-  TPROXY	udp	anywhere	192.168.100.100/32              dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
+  target	   proto	source		  destination	            mapping:
+  ------	   -----	--------	  ------------------	    ---------------------------------------------------------
+  PASSTHRU	   udp	        anywhere	  192.168.100.100/32        dpts=50000:60000 	        PASSTHRU to 192.168.100.100/32
   ``` 
 Example: List rules in map for a given prefix
 
@@ -178,10 +178,10 @@ Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<p
   sudo map_update -L -c 192.168.100.100 -m 32
   ```
   ```     
-  target	proto	source		destination			mapping:
-  ------	-----	------		-----------			-------------------------------------------------------
-  TPROXY	udp	anywhere	192.168.100.100/32             dpts=50000:60000 	TPROXY redirect 127.0.0.1:0
-  TPROXY	tcp	anywhere	192.168.100.100/32             dpts=60000:65535 	TPROXY redirect 127.0.0.1:0
+  target	 proto	        source		  destination	            mapping:
+  ------	 -----	        --------	  ------------------	    ---------------------------------------------------------
+  PASSTHRU	 udp	        anywhere	  192.168.100.100/32        dpts=50000:60000 	        PASSTHRU to 192.168.100.100/32
+  PASSTHRU	 tcp	        anywhere	  192.168.100.100/32        dpts=60000:65535 	        PASSTHRU to 192.168.100.100/32
   ```
 
 Additional Distro testing:
