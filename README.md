@@ -64,7 +64,7 @@ if you want to run with ziti-router build a ziti network and create services as 
 select "Host It Anywhere"
 
 The router you run with ebpf should be on a separate VM and you will want to build the binary as described in the README.md at
-https://github.com/r-caamano/edge/tree/v0.26.10
+https://github.com/r-caamano/edge/tree/v0.26.11
 
 Copy the user space map program to folder in $PATH i.e
 sudo cp map_update /usr/bin
