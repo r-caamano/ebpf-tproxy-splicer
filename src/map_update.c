@@ -42,7 +42,7 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define MAX_INDEX_ENTRIES 50 // MAX port ranges per prefix
+#define MAX_INDEX_ENTRIES 120 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536 // PORT MApping table size
 
 static bool add = false;
@@ -78,7 +78,6 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 tproxy_ip;
 };
 
 struct tproxy_tuple
@@ -272,7 +271,7 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
     }
 }
 
-void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple)
+void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_count)
 {
     char *proto;
     if (key->protocol == IPPROTO_UDP)
@@ -304,6 +303,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple)
             printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
                dpts, "PASSTHRU",cidr_block);
         }
+	*rule_count += 1;
     }
     free(dpts);
     free(cidr_block);
@@ -431,8 +431,8 @@ void map_insert()
     struct tproxy_port_mapping port_mapping = {
         htons(low_port),
         htons(high_port),
-        htons(tproxy_port),
-        0x0100007f};
+        htons(tproxy_port)
+        };
     /*
      * Check result of lookup if not 0 then create a new entery
      * else edit an existing entry
@@ -596,12 +596,14 @@ void map_list()
     int lookup = 0;
     printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
     printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
+    int rule_count = 0;
     if (prot)
     {
         lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
         if (!lookup)
         {
-            print_rule((struct tproxy_key *)map.key, &orule);
+            print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
+            printf("Rule Count: %d\n", rule_count);
         }
     }
     else
@@ -615,7 +617,8 @@ void map_list()
             lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
             if (!lookup)
             {
-                print_rule((struct tproxy_key *)map.key, &orule);
+                print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
+                printf("Rule Count: %d\n", rule_count);
             }
         }
     }
@@ -647,12 +650,14 @@ void map_list_all()
     int ret = 0;
     printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
     printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
+    int rule_count=0;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
         // printf("ret=%d\n",ret);
         if (ret == -1)
         {
+            printf("Rule Count: %d\n",rule_count);
             break;
         }
         map.key = map.next_key;
@@ -660,7 +665,7 @@ void map_list_all()
         lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
         if (!lookup)
         {
-            print_rule(&current_key, &orule);
+            print_rule(&current_key, &orule, &rule_count);
         }
         else
         {
