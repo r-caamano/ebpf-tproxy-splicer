@@ -34,7 +34,7 @@
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
 #define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  50 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_INDEX_ENTRIES  120 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
@@ -45,7 +45,6 @@ struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    __u32 tproxy_ip;
 };
 
 struct tproxy_tuple {
@@ -394,7 +393,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                             if(tproxy->port_mapping[port_key].tproxy_port == 0){
                                 return TC_ACT_OK;
                             }
-                            sockcheck.ipv4.daddr = tproxy->port_mapping[port_key].tproxy_ip;
+                            sockcheck.ipv4.daddr = 0x0100007f;
                             sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
 			    if(protocol == IPPROTO_TCP){
 		                sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
