@@ -48,6 +48,7 @@
 static bool add = false;
 static bool delete = false;
 static bool list = false;
+static bool flush = false;
 static bool lpt = false;
 static bool hpt = false;
 static bool tpt = false;
@@ -295,7 +296,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     for (; x < tuple->index_len; x++)
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
-                ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
+            ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
         if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
             printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
@@ -317,6 +318,7 @@ void usage(char *message)
     fprintf(stderr, "       map_update -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
     fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
     fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length>\n");
+    fprintf(stderr, "       map_update -F\n");
     fprintf(stderr, "       map_update -L\n");
     fprintf(stderr, "       map_update -V\n");
     fprintf(stderr, "       map_update --help\n");
@@ -391,6 +393,7 @@ bool interface_map(){
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
             if (ret){
                 printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                close(if_fd);
                 exit(1);
             }
         }
@@ -448,6 +451,7 @@ void map_insert()
     else
     {
         printf("Unsupported Protocol\n");
+        close(fd);
         exit(1);
     }
     if (lookup)
@@ -462,6 +466,7 @@ void map_insert()
         if (!rule.port_mapping[index].low_port)
         {
             printf("memcpy failed");
+            close(fd);
             exit(1);
         }
 	    if(route && route_insert){
@@ -476,6 +481,7 @@ void map_insert()
         if (!(orule.port_mapping[index].low_port == index))
         {
             printf("memcpy failed");
+            close(fd);
             exit(1);
         }
     }
@@ -485,6 +491,40 @@ void map_insert()
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         exit(1);
+    }
+    close(fd);
+}
+
+void map_delete_key(struct tproxy_key key)
+{
+    char *prefix = nitoa(ntohl(key.dst_ip));
+    inet_aton(prefix, &cidr);
+    plen = key.prefix_len;
+    free(prefix);
+    bool route_delete = interface_map();
+    union bpf_attr map;
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)path;
+    map.bpf_fd = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s\n", strerror(errno));
+        exit(1);
+    }
+    // delete element with specified key
+    map.map_fd = fd;
+    map.key = (uint64_t)&key;
+    int result = syscall(__NR_bpf, BPF_MAP_DELETE_ELEM, &map, sizeof(map));
+    if (result)
+    {
+        printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+    }
+    else
+    {
+        if(route && route_delete){
+            unbind_prefix(&cidr,plen);
+        }
     }
     close(fd);
 }
@@ -514,6 +554,7 @@ void map_delete()
     if (lookup)
     {
         printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+
         exit(1);
     }
     else
@@ -551,6 +592,7 @@ void map_delete()
             if (result)
             {
                 printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
+                close(fd);
                 exit(1);
             }
             else
@@ -562,14 +604,52 @@ void map_delete()
                 exit(0);
             }
         }
+        map.value = (uint64_t)&orule;
+        map.flags = BPF_ANY;
+        /*Flush Map changes to system -- Needed when removing an entry that is not the last range associated
+         *with a prefix/protocol pair*/
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+            close(fd);
+            exit(1);
+        }
     }
-    map.value = (uint64_t)&orule;
-    map.flags = BPF_ANY;
-    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &map, sizeof(map));
-    if (result)
+    close(fd);
+}
+
+void map_flush()
+{
+    union bpf_attr map;
+    struct tproxy_key *key = NULL;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
     {
-        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int ret = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        if (ret == -1)
+        {
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        map_delete_key(current_key);
     }
     close(fd);
 }
@@ -681,6 +761,7 @@ static struct argp_option options[] = {
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
+    {"list", 'F', NULL, 0, "Flush all map rules", 0},
     {"cidr-block", 'c', "", 0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"prefix-len", 'm', "", 0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
@@ -703,6 +784,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'L':
         list = true;
+        break;
+    case 'F':
+        flush = true;
         break;
     case 'c':
         if (!inet_aton(arg, &cidr))
@@ -815,6 +899,10 @@ int main(int argc, char **argv)
         {
             map_delete();
         }
+    }
+    else if(flush)
+    {
+        map_flush();
     }
     else if (list)
     {
