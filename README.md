@@ -133,12 +133,12 @@ Example: Remove previous entry from map
 Usage: ./map_update -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
 
   ```
-  sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp [-r]
+  sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
   ```
 
 Example: Remove all entries from map
 
-Usage: ./map_update -F [-r]
+Usage: ./map_update -F
 
   ```
   sudo ./map_update -F
