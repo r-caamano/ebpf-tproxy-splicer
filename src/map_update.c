@@ -692,6 +692,7 @@ void map_list()
         int x = 0;
         for (; x < 2; x++)
         {
+            rule_count = 0;
             struct tproxy_key vkey = {cidr.s_addr, plen, vprot[x]};
             map.key = (uint64_t)&vkey;
             lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
