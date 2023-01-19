@@ -762,7 +762,7 @@ static struct argp_option options[] = {
     {"insert", 'I', NULL, 0, "Insert map rule", 0},
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
-    {"list", 'F', NULL, 0, "Flush all map rules", 0},
+    {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"cidr-block", 'c', "", 0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"prefix-len", 'm', "", 0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
