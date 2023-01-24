@@ -32,7 +32,7 @@ jobs:
         run: |
           tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C files/ objects services scripts
       - name: Get version
-        run: echo "version=`./map_update -V`" >> $GITHUB_OUTPUT
+        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
         id: version
 
       - name: Create release
