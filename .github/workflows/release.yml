@@ -1,0 +1,57 @@
+---
+name: release
+
+on:
+  pull_request:
+    types: [ready_for_review]
+
+jobs: 
+  build_release:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+          
+      - name: Install EBPF Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev 
+          
+      - name:  Compile Object file from Source
+        run: |
+          clang -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
+          clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
+          chmod +x files/scripts/tproxy_splicer_startup.sh
+
+      - name: Tar Object File
+        run: |
+          tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C files/ objects services scripts
+      - name: Get version
+        run: echo "version=`./map_update -V`" >> $GITHUB_OUTPUT
+        id: version
+
+      - name: Create release
+        uses: actions/create-release@v1
+        id: release
+        with:
+          draft: false
+          prerelease: false
+          release_name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload a built artifact for release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: tproxy_splicer.tar.gz
+          asset_name: tproxy_splicer.tar.gz
+          asset_content_type: application/gzip
