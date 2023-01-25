@@ -46,3 +46,4 @@ if [ -f "$router_config_file" ]; then
         fi
     fi
 fi
+
