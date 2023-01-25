@@ -278,6 +278,7 @@ to:
 
 Analisys:
 
+
                                                         DIAGRAMS
 
 ![Diagram](packet-flow.drawio.png) 
