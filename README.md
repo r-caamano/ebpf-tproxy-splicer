@@ -1,5 +1,5 @@
-# Intro:
-
+## Introduction
+--- 
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
 ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
 edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for
@@ -27,75 +27,60 @@ addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev
 functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
 if the destination ip/prefix does not fall within the subnet range of an external interface.
 
-prereqs: **Ubuntu 22.04 server** (kernel 5.15 or higher)
+## Build
+---
+[To build from source. Click here!](./BUILD.md)
 
-  ```
-  sudo apt update
-  sudo apt upgrade
-  sudo reboot
-  sudo apt install -y gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev
-  ```          
+## Management After Deployment
+---
 
-compile:
+### Attaching to interface
 
-  ```      
-  mkdir ~/repos
-  cd repos
-  git clone https://github.com/r-caamano/ebpf-tproxy-splicer.git 
-  cd ebpf-tproxy-splicer/src
-  clang -g -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
-  clang -O2 -Wall -Wextra -o map_update map_update.c 
-  ```     
-
-attach:
-
-  ```   
-  sudo tc qdisc add dev <interface name>  clsact
-  sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
-  sudo ufw allow in on <interface name> to any
-  ```
+```bash   
+sudo tc qdisc add dev <interface name>  clsact
+sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
+sudo ufw allow in on <interface name> to any
+```
 
 ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
 services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
 initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
 
-Test with ziti-router after attaching -
-if you want to run with ziti-router build a ziti network and create services as explained at https://openziti.github.io
-select "Host It Anywhere"
+### Openziti Ingress
 
-The router you run with ebpf should be on a separate VM and you will want to build the binary as described in the README.md at
-https://github.com/r-caamano/edge/tree/v0.26.11
+Testing with ziti-router after attaching. Build a ziti network first and create services as explained at [Host It Anywhere](https://docs.openziti.io/docs/learn/quickstarts/network/hosted/)
 
-Copy the user space map program to folder in $PATH i.e
+Grab the edge router binary `(>= v0.27.3)` at [open ziti](https://github.com/openziti/ziti/releases).
+
+```bash
+# Copy the user space map program to folder in $PATH i.e
 sudo cp map_update /usr/bin
 
-In the router config.yml set tunnel mode to ebpf i.e.
+# In the router config.yml set tunnel mode to ebpf i.e.   
+- binding: tunnel
+  options:
+    mode: tproxy:/path/to/map_update
 
-  ```     
-  - binding: tunnel
-    options:
-       mode: ebpf
-       resolver: udp://192.168.1.1:53
-       dnsSvcIpRange: 100.64.0.1/10
-  ```
+# Run edge router command 
+# Note: assumption - ziti-router and config.yml in PATH
+sudo ziti-router run config.yml
+```
 
-You can then run it with the following command "sudo ziti-router run config.yml" assuming ziti-router and config.yml are
-in your PATH.
+### Detaching from interface:
 
-detach:
+```bash
+sudo tc qdisc del dev <interface name>  clsact
+```
 
-  ```
-  sudo tc qdisc del dev <interface name>  clsact
-  ```
-
+## Ebpf Map User Space Management
+---
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
-
+```bash
 Usage: ./map_update -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
 
-  ```
-  sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
-  ```
+sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
+```
 
 As mentioned earlier if you add -r, --route as argument the program will add 172.16.240.0/24 to the "lo" interface if it
 does not overlap with an external LAN interface subnet.
@@ -104,16 +89,15 @@ does not overlap with an external LAN interface subnet.
 Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1
 with tproxy_port set to 0 signifying local connect rule
 
-  ```
-  sudo ./map_update -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
-  ```
+```bash
+sudo ./map_update -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
+```
 
 Example: Monitor ebpf trace messages
 
-  ```
-  sudo cat /sys/kernel/debug/tracing/trace_pipe
-  ```         
-````
+```
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+  
 <idle>-0       [000] dNs3. 23100.582441: bpf_trace_printk: tproxy_mapping->5060 to 33626
 <idle>-0       [000] d.s3. 23101.365172: bpf_trace_printk: ens33 : protocol_id=17
 <idle>-0       [000] dNs3. 23101.365205: bpf_trace_printk: tproxy_mapping->5060 to 33626
@@ -127,157 +111,143 @@ Example: Monitor ebpf trace messages
 <idle>-0       [000] dNs3. 23138.910113: bpf_trace_printk: tproxy_mapping->22 to 39643
 <idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: ens33 : protocol_id=6
 <idle>-0       [000] dNs3. 23153.458359: bpf_trace_printk: tproxy_mapping->22 to 39643
-````
+```
 Example: Remove previous entry from map
-
+```bash
 Usage: ./map_update -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
 
-  ```
-  sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
-  ```
+sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
+```
 
 Example: Remove all entries from map
-
+```
 Usage: ./map_update -F
 
-  ```
-  sudo ./map_update -F
-  ```
+sudo ./map_update -F
+```
 
 Example: List all rules in map
-
+```
 Usage: ./map_update -L
 
-  ```
-  sudo ./map_update -L
-  ```
-  ```
-  target     proto    source          destination               mapping:
-  ------     -----    --------        ------------------        ---------------------------------------------------------
-  TPROXY     tcp      anywhere        10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381
-  TPROXY     tcp      anywhere        10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-  TPROXY     udp      anywhere        172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-  TPROXY     tcp      anywhere        172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381
-  TPROXY     tcp      anywhere        172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-  PASSTHRU   udp      anywhere        192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24 
-  PASSTHRU   udp      anywhere        192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32
-  PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
-  TPROXY     udp      anywhere        192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-  PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
-  ```
+sudo ./map_update -L
+
+target     proto    source          destination               mapping:
+------     -----    --------        ------------------        ---------------------------------------------------------
+TPROXY     tcp      anywhere        10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381
+TPROXY     tcp      anywhere        10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
+TPROXY     udp      anywhere        172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
+TPROXY     tcp      anywhere        172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381
+TPROXY     tcp      anywhere        172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
+PASSTHRU   udp      anywhere        192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24 
+PASSTHRU   udp      anywhere        192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32
+PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+TPROXY     udp      anywhere        192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
+PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+```
 Example: List rules in map for a given prefix and protocol
+```bash
+# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+  
+sudo map_update -L -c 192.168.100.100 -m 32 -p udp
+  
+target     proto    source           destination              mapping:
+------     -----    --------         ------------------       ---------------------------------------------------------
+PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+``` 
 
-Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
-
-  ```     
-  sudo map_update -L -c 192.168.100.100 -m 32 -p udp
-  ```
-  ```     
-  target     proto    source           destination              mapping:
-  ------     -----    --------         ------------------       ---------------------------------------------------------
-  PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-  ``` 
 Example: List rules in map for a given prefix
+```bash
+# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
+sudo map_update -L -c 192.168.100.100 -m 32
 
-Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+target     proto    source           destination              mapping:
+------     -----    --------         ------------------       ---------------------------------------------------------
+PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   tcp      anywhere         192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
+```
 
-  ```
-  sudo map_update -L -c 192.168.100.100 -m 32
-  ```
-  ```     
-  target     proto    source           destination              mapping:
-  ------     -----    --------         ------------------       ---------------------------------------------------------
-  PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-  PASSTHRU   tcp      anywhere         192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
-  ```
-
-Additional Distro testing:
+## Additional Distro testing
+---
 
 Fedora 36 kernel 6.0.5-200
-
-  ```
-  sudo yum clean all
-  sudo yum check-update
-  sudo yum upgrade --refresh
-  sudo yum install -y clang bcc-devel libbpf-devel iproute-devel iproute-tc glibc-devel.i686 git
-  ```
 
 On fedora I found that NetworkManager interferes with eBPF socket redirection and can
 be unpredictable so belowis what I changed to get it working consistently. Other less
 intrusive methods not requiring removal of NM might also be possible.
 
-  ```
-  sudo yum install network-scripts
-  sudo systemctl enable network
-  sudo yum remove NetworkManager
-  ```
+```bash
+sudo yum install network-scripts
+sudo systemctl enable network
+sudo yum remove NetworkManager
 
-  ```
-  sudo vi /etc/sysconfig/network-scripts/ifcfg-eth0
-  ```
+sudo vi /etc/sysconfig/network-scripts/ifcfg-eth0
 
-if eth0 will be dhcp then something like:
-```
+# if eth0 will be dhcp then something like:
 BOOTPROTO=dhcp
 DEVICE=eth0
 ONBOOT=yes
+
+# or if static
+BOOTPROTO=static
+IPADDR=192.168.61.70
+NETMASK=255.255.255.0
+DEVICE=eth1
+ONBOOT=yes
 ```
 
-or if static
-
- ```
- BOOTPROTO=static
- IPADDR=192.168.61.70
- NETMASK=255.255.255.0
- DEVICE=eth1
- ONBOOT=yes
- ```
-
 The following grub change is only necessary on systems that do not use ethX naming by
-default like vmware. this changes fedora back to using ethX for interface naming network-scripts looks
-for this nomenclature and will fail DHCP otherwise
+default like vmware. this changes fedora back to using ethX for interface naming network-scripts looks for this nomenclature and will fail DHCP otherwise
 
-  ``` 
-  sudo vi /etc/default/grub
-  ```
+```bash 
+sudo vi /etc/default/grub
 
-change:
-  ```
-  GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet"
-  ```
-to:
-  ```
-  GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet net.ifnames=0 biosdevname=0"
-  ```
-then:
-  ```
-  sudo grub2-mkconfig -o /boot/grub2/grub.cfg
-  ```
+# change:
+GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet"
+
+# to:
+GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet net.ifnames=0 biosdevname=0"
+
+# then:
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+```
 This updates dhcp script to dynamically update systemd-resolved on per interface resolver
 
-  ```
-  sudo vi /usr/sbin/dhclient-script
-  ```
-change:
-````
-    if [ -n "${new_domain_name_servers}" ]; then
-       for nameserver in ${new_domain_name_servers} ; do
-           echo "nameserver ${nameserver}" >> "${rscf}"
-       done
-````
-to:
+```bash
+sudo vi /usr/sbin/dhclient-script
 
-````    
-    if [ -n "${new_domain_name_servers}" ]; then
-       for nameserver in ${new_domain_name_servers} ; do
-           echo "nameserver ${nameserver}" >> "${rscf}"
-           systemd-resolve --interface "${interface}" --set-dns "${nameserver}"
-       done
+# change:
+if [ -n "${new_domain_name_servers}" ]; then
+    for nameserver in ${new_domain_name_servers} ; do
+        echo "nameserver ${nameserver}" >> "${rscf}"
+    done
+
+# to:   
+if [ -n "${new_domain_name_servers}" ]; then
+    for nameserver in ${new_domain_name_servers} ; do
+        echo "nameserver ${nameserver}" >> "${rscf}"
+        systemd-resolve --interface "${interface}" --set-dns "${nameserver}"
+    done
 ````
 
-Analisys:
+## Analisys
+---
 
                                                         DIAGRAMS
 
 ![Diagram](packet-flow.drawio.png) 
+
+
+## Deployment on Ubuntu
+---
+Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggered by ziti-router systemd service when it is restarted. Both are located under the files directory.
+1. [tproxy_splicer_startup.sh](./files/scripts/tproxy_splicer_startup.sh)
+1. [ziti-router.service](./files/services/ziti-router.service)
+
+The script is created with comments, so hopefully the comments will help readers understand what is happening. One thing to pay attention to is `lanIf`. The `lanIf` option is configred in the ziti-router configuration file evey time either tproxy with iptables or ebpf is configured. 
+```bash
+# Here is the code snippet from the script:
+MYIF=$(cat /opt/netfoundry/ziti/ziti-router/config.yml |yq '.listeners[] | select(.binding == "tunnel").options.lanIf')
+```
+As one can see we lookup lanIf (i.e. `.options.lanIf`) in the config.yml file located in the ziti-router directory. Based on that port everyting else is configured for the ebpf program to work. We also look up the fabric, edge, and health-check ports to update the tproxy map to allow these ports in along with `DNS UDP Port 53`.
