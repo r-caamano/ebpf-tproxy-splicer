@@ -241,7 +241,7 @@ if [ -n "${new_domain_name_servers}" ]; then
 
 ## Deployment on Ubuntu
 ---
-Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggereed by ziti-router systemd service when it is restarted. Both are located under the files directory.
+Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggered by ziti-router systemd service when it is restarted. Both are located under the files directory.
 1. [tproxy_splicer_startup.sh](./files/scripts/tproxy_splicer_startup.sh)
 1. [ziti-router.service](./files/services/ziti-router.service)
 
