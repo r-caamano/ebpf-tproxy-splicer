@@ -233,7 +233,6 @@ if [ -n "${new_domain_name_servers}" ]; then
 
 ## Analisys
 ---
-
                                                         DIAGRAMS
 
 ![Diagram](packet-flow.drawio.png) 
