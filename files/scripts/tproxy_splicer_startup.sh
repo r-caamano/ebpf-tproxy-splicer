@@ -147,6 +147,13 @@ if [ -f "$router_config_file" ]; then
                     if [ "$LANIF" ]; then
                         yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy"' $router_config_file 
                         tc qdisc del dev $LANIF clsact
+                        # delete ufw rule associated with ebpf
+                        ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort -r)
+                        for index in $ufw_rule_num
+                        do
+                            ufw --force delete $index
+                        done
+                        # Restart ziti router service after reverting all changes
                         /usr/bin/systemctl restart ziti-router.service
                     else
                         echo "ERROR: lanIf value is missing, could not revert config back to tproxy with iptables"
