@@ -17,7 +17,7 @@ open ziti edge-router then uses the map_update user space app to insert rules to
 running on. For those interested in additional background on the project please visit: 
 https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
+**Note**: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
 traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the
 Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For
 external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as
