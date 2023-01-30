@@ -5,6 +5,7 @@ After=network.target
 [Service]
 User=root
 WorkingDirectory=/opt/netfoundry/ziti/ziti-router
+ExecStartPre=-/usr/sbin/iptables -F NF-INTERCEPT -t mangle
 ExecStartPre=-/opt/netfoundry/ebpf/objects/map_update -F -r
 ExecStartPre=-/opt/netfoundry/ebpf/scripts/tproxy_splicer_startup.sh
 ExecStart=/opt/netfoundry/ziti/ziti-router/ziti-router run /opt/netfoundry/ziti/ziti-router/config.yml
