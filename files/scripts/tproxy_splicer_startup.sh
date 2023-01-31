@@ -33,18 +33,18 @@ attach_ebpf_program()
         # Then get IP
         LANIP=$(/sbin/ip add show "${LANIF}"|awk '$1=="inet" {print $2;}'|awk -v FS='/' '{print $1}')
         # Attach ebpf program to lanif interface
-        ATTACHED=`eval tc filter show dev $LANIF ingress`
+        ATTACHED=`eval /usr/sbin/tc filter show dev $LANIF ingress`
         # Check if tproxy splicer ebpf is attached 
         if [ $(echo  $ATTACHED | grep -w -c tproxy_splicer.o) == 1 ]; then  
             echo "Found ebpf program tproxy_splicer and will re-add it to $LANIF now"
-            tc qdisc del dev $LANIF clsact
-            tc qdisc add dev $LANIF clsact
-            tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action
+            /usr/sbin/tc qdisc del dev $LANIF clsact
+            /usr/sbin/tc qdisc add dev $LANIF clsact
+            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1
             ufw allow in on $LANIF to any            
         else
             echo "Not Found ebpf program tproxy_splicer and will add it to $LANIF now"
-            tc qdisc add dev $LANIF clsact
-            tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action
+            /usr/sbin/tc qdisc add dev $LANIF clsact
+            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1
             ufw allow in on $LANIF to any
         fi
         update_map_local
@@ -146,7 +146,8 @@ if [ -f "$router_config_file" ]; then
                     # Check if lanIf is not empty
                     if [ "$LANIF" ]; then
                         yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy"' $router_config_file 
-                        tc qdisc del dev $LANIF clsact
+                        /usr/sbin/tc qdisc del dev $LANIF clsact
+                        /usr/bin/rm /sys/fs/bpf/tc/globals/zt_tproxy_map
                         # delete ufw rule associated with ebpf
                         ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort -r)
                         for index in $ufw_rule_num
