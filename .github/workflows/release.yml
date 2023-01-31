@@ -12,7 +12,7 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [amd64]
-        matrix.map_type: 
+        map_type: 
           - name: small
             size: 1000
           - name: medium
