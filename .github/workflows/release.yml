@@ -12,7 +12,7 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [amd64]
-        map_type: 
+        matrix.map_type: 
           - name: small
             size: 1000
           - name: medium
@@ -31,13 +31,13 @@ jobs:
           
       - name:  Compile Object file from Source
         run: |
-          clang -D BPF_MAX_ENTRIES=${{map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
+          clang -D BPF_MAX_ENTRIES=${{matrix.map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
           clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
           chmod +x files/scripts/tproxy_splicer_startup.sh
 
       - name: Tar Object File
         run: |
-          tar -cvzf tproxy_splicer_${{map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
+          tar -cvzf tproxy_splicer_${{matrix.map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
 
       - name: Get version
         run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
@@ -60,6 +60,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: tproxy_splicer_${{map_type.name}}
-          asset_name: tproxy_splicer_${{map_type.name}}
+          asset_path: tproxy_splicer_${{matrix.map_type.name}}
+          asset_name: tproxy_splicer_${{matrix.map_type.name}}
           asset_content_type: application/gzip

@@ -10,7 +10,7 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [amd64]
-        map_type: 
+        matrix.map_type: 
           - name: small
             size: 1000
           - name: medium
@@ -29,17 +29,17 @@ jobs:
 
       - name:  Compile Object file from Source
         run: |
-          clang -D BPF_MAX_ENTRIES=${{map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
+          clang -D BPF_MAX_ENTRIES=${{matrix.map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
           clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
           chmod +x files/scripts/tproxy_splicer_startup.sh
         
       - name: Tar Object File
         run: |
-          tar -cvzf tproxy_splicer_${{map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
+          tar -cvzf tproxy_splicer_${{matrix.map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
           
       - name: Upload a built artifact for testing
         if: startsWith(github.ref, 'refs/heads/main') == false
         uses: actions/upload-artifact@v3.1.0
         with:
-          name: tproxy_splicer_${{map_type.name}}
-          path: tproxy_splicer_${{map_type.name}}.tar.gz
+          name: tproxy_splicer_${{matrix.map_type.name}}
+          path: tproxy_splicer_${{matrix.map_type.name}}.tar.gz
