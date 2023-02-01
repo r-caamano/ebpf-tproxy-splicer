@@ -47,6 +47,7 @@ jobs:
         with:
           name: tproxy_splicer_${{matrix.map_type.name}}
           path: ./tproxy_splicer_${{matrix.map_type.name}}.tar.gz
+          retention-days: 1
           
       - name: Get version
         id: version
@@ -66,8 +67,8 @@ jobs:
         with:
           draft: false
           prerelease: false
-          release_name: v${{ needs.build_release.outputs.release_tag }}"
-          tag_name: v${{ needs.build_release.outputs.release_tag }}"
+          release_name: v${{ needs.build_release.outputs.release_tag }}
+          tag_name: v${{ needs.build_release.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
