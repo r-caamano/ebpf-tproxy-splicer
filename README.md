@@ -27,11 +27,11 @@ addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev
 functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
 if the destination ip/prefix does not fall within the subnet range of an external interface.
 
-## Build
+## EBPF Build
 ---
 [To build from source. Click here!](./BUILD.md)
 
-## Management After Deployment
+## EBPF Deployment
 ---
 
 ### Attaching to interface
@@ -72,7 +72,7 @@ sudo ziti-router run config.yml
 sudo tc qdisc del dev <interface name>  clsact
 ```
 
-## Ebpf Map User Space Management
+## EBPF Map Access from User Space
 ---
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
@@ -239,7 +239,7 @@ if [ -n "${new_domain_name_servers}" ]; then
 ![Diagram](packet-flow.drawio.png) 
 
 
-## Deployment on Ubuntu
+## EBPF Management After Deployment on Ubuntu
 ---
 Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggered by ziti-router systemd service when it is restarted. Both are located under the files directory.
 1. [tproxy_splicer_startup.sh](./files/scripts/tproxy_splicer_startup.sh)
