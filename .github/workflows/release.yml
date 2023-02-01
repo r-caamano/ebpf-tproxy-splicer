@@ -43,23 +43,22 @@ jobs:
           tar -cvzf tproxy_splicer_${{matrix.map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
 
       - name: Upload tproxy tar files to create_release
-        uses: actions/upload-artifact@v3.1.0
+        uses: actions/upload-artifact@v3
         with:
           name: tproxy_splicer_${{matrix.map_type.name}}
-          path: tproxy_splicer_${{matrix.map_type.name}}.tar.gz
+          path: ./tproxy_splicer_${{matrix.map_type.name}}.tar.gz
           
       - name: Get version
         id: version
         run: |
-          version=`files/objects/map_update -V`
-          echo "::set-output name=release_tag::$version"
+          echo "release_tag=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
           
   create_release:
     runs-on: ubuntu-22.04
     needs: build_release 
     steps:
       - name: Download tproxy tar files from build_release
-        uses: actions/download-artifact@v3.1.0
+        uses: actions/download-artifact@v3
 
       - name: Create release
         uses: actions/create-release@v1
