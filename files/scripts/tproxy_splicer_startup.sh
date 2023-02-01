@@ -39,12 +39,12 @@ attach_ebpf_program()
             echo "Found ebpf program tproxy_splicer and will re-add it to $LANIF now"
             /usr/sbin/tc qdisc del dev $LANIF clsact
             /usr/sbin/tc qdisc add dev $LANIF clsact
-            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1
+            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
             ufw allow in on $LANIF to any            
         else
             echo "Not Found ebpf program tproxy_splicer and will add it to $LANIF now"
             /usr/sbin/tc qdisc add dev $LANIF clsact
-            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1
+            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
             ufw allow in on $LANIF to any
         fi
         update_map_local
