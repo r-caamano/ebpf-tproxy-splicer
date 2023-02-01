@@ -19,7 +19,6 @@ jobs:
             size: 5000
           - name: large
             size: 10000
-
     outputs:
           release_tag: ${{ steps.version.outputs.release_tag }}
 
@@ -28,9 +27,26 @@ jobs:
         uses: actions/checkout@v3
           
       - name: Install EBPF Packages
-        run: | 
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev 
+          
+      - name:  Compile Object file from Source
+        run: |
+          clang -D BPF_MAX_ENTRIES=${{matrix.map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
+          clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
+          chmod +x files/scripts/tproxy_splicer_startup.sh
+
+      - name: Tar Object File
+        run: |
+          tar -cvzf tproxy_splicer_${{matrix.map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
+
+      - name: Upload tproxy tar files to create_release
+        uses: actions/upload-artifact@v3.1.0
+        with:
           name: tproxy_splicer_${{matrix.map_type.name}}
-          path: ./tproxy_splicer_${{matrix.map_type.name}}.tar.gz
+          path: tproxy_splicer_${{matrix.map_type.name}}.tar.gz
           
       - name: Get version
         id: version
@@ -43,7 +59,7 @@ jobs:
     needs: build_release 
     steps:
       - name: Download tproxy tar files from build_release
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v3.1.0
 
       - name: Create release
         uses: actions/create-release@v1
@@ -51,8 +67,8 @@ jobs:
         with:
           draft: false
           prerelease: false
-          release_name: v${{ needs.build_release.outputs.release_tag }}
-          tag_name: v${{ needs.build_release.outputs.release_tag }}
+          release_name: v${{ needs.build_release.outputs.release_tag }}"
+          tag_name: v${{ needs.build_release.outputs.release_tag }}"
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
