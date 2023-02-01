@@ -19,29 +19,31 @@ jobs:
             size: 5000
           - name: large
             size: 10000
+
+    outputs:
+          release_tag: ${{ steps.version.outputs.release_tag }}
+
     steps:
       - name: Check out code
         uses: actions/checkout@v3
           
       - name: Install EBPF Packages
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get upgrade -yqq
-          sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev 
+        run: | 
+          name: tproxy_splicer_${{matrix.map_type.name}}
+          path: ./tproxy_splicer_${{matrix.map_type.name}}.tar.gz
           
-      - name:  Compile Object file from Source
-        run: |
-          clang -D BPF_MAX_ENTRIES=${{matrix.map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
-          clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
-          chmod +x files/scripts/tproxy_splicer_startup.sh
-
-      - name: Tar Object File
-        run: |
-          tar -cvzf tproxy_splicer_${{matrix.map_type.name}}.tar.gz --strip-components=1 -C files/ objects scripts services
-
       - name: Get version
-        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
         id: version
+        run: |
+          version=`files/objects/map_update -V`
+          echo "::set-output name=release_tag::$version"
+          
+  create_release:
+    runs-on: ubuntu-22.04
+    needs: build_release 
+    steps:
+      - name: Download tproxy tar files from build_release
+        uses: actions/download-artifact@v3
 
       - name: Create release
         uses: actions/create-release@v1
@@ -49,17 +51,37 @@ jobs:
         with:
           draft: false
           prerelease: false
-          release_name: v${{ steps.version.outputs.version }}
-          tag_name: v${{ steps.version.outputs.version }}
+          release_name: v${{ needs.build_release.outputs.release_tag }}
+          tag_name: v${{ needs.build_release.outputs.release_tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Upload a built artifact for release
+      - name: Upload a small artifact for release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: ./tproxy_splicer_${{matrix.map_type.name}}.tar.gz
-          asset_name: tproxy_splicer_${{matrix.map_type.name}}
+          asset_path: tproxy_splicer_small/tproxy_splicer_small.tar.gz
+          asset_name: tproxy_splicer_small
+          asset_content_type: application/gzip
+          
+      - name: Upload a medium artifact for release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: tproxy_splicer_medium/tproxy_splicer_medium.tar.gz
+          asset_name: tproxy_splicer_medium
+          asset_content_type: application/gzip
+          
+      - name: Upload a large artifact for release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: tproxy_splicer_large/tproxy_splicer_large.tar.gz
+          asset_name: tproxy_splicer_large
           asset_content_type: application/gzip
