@@ -29,4 +29,10 @@
     cd ebpf-tproxy-splicer/src
     clang -g -O2 -Wall -Wextra -target bpf -c -o tproxy_splicer.o tproxy_splicer.c
     clang -O2 -Wall -Wextra -o map_update map_update.c 
-    ```     
+    ```  
+    **Important Note:** 
+    
+    By default the tproxy map compiles with 100 entries allowed. If more is needed, then one needs to pass macro name `BPF_MAX_ENTRIES` with the desired number of entries as shown.
+    ```bash
+    clang -D BPF_MAX_ENTRIES=${{map_size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
+    ``` 

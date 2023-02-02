@@ -31,11 +31,13 @@
 #include <linux/tcp.h>
 #include <net/if.h>
 
-#define BPF_MAP_ID_TPROXY  1
-#define BPF_MAP_ID_IFINDEX_IP  2
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  120 //MAX port ranges per prefix need to match in user space apps 
-#define MAX_TABLE_SIZE  65536 //needs to match in userspace
+#define BPF_MAP_ID_TPROXY       1
+#define BPF_MAP_ID_IFINDEX_IP   2
+#ifndef BPF_MAX_ENTRIES
+#define BPF_MAX_ENTRIES         100    //MAX # PREFIXES
+#endif
+#define MAX_INDEX_ENTRIES       120 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_TABLE_SIZE          65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
 #define AWS_GNV_HDR_OPT_LEN     32 // Bytes
