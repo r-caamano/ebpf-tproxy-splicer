@@ -67,7 +67,7 @@ static char *program_name;
 static char *protocol_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
-static char doc[] = "map_update -- ebpf mapping tool";
+static char doc[] = "etables -- ebpf mapping tool";
 const char *argp_program_version = "0.2.1";
 
 struct ifindex_ip4
@@ -332,14 +332,14 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
 void usage(char *message)
 {
     fprintf(stderr, "%s : %s\n", program_name, message);
-    fprintf(stderr, "Usage: map_update -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
-    fprintf(stderr, "       map_update -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
-    fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
-    fprintf(stderr, "       map_update -L -c <ip dest address or prefix> -m <prefix length>\n");
-    fprintf(stderr, "       map_update -F\n");
-    fprintf(stderr, "       map_update -L\n");
-    fprintf(stderr, "       map_update -V\n");
-    fprintf(stderr, "       map_update --help\n");
+    fprintf(stderr, "Usage: etables -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
+    fprintf(stderr, "       etables -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
+    fprintf(stderr, "       etables -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
+    fprintf(stderr, "       etables -L -c <ip dest address or prefix> -m <prefix length>\n");
+    fprintf(stderr, "       etables -F\n");
+    fprintf(stderr, "       etables -L\n");
+    fprintf(stderr, "       etables -V\n");
+    fprintf(stderr, "       etables --help\n");
     exit(1);
 }
 
