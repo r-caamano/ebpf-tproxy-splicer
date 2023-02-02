@@ -56,6 +56,8 @@ static bool pl = false;
 static bool cd = false;
 static bool prot = false;
 static bool route = false;
+static bool passthru = false;
+static bool intercept = false;
 static struct in_addr cidr;
 static unsigned short plen;
 static unsigned short low_port;
@@ -297,12 +299,23 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
             ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
-        if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
-               dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+        
+        if(intercept && !passthru){
+           if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
+                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+           }
+        }else if(passthru && !intercept){
+                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
+                dpts, "PASSTHRU",cidr_block);
         }else{
-            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
-               dpts, "PASSTHRU",cidr_block);
+            if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
+                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+            }else{
+                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
+                dpts, "PASSTHRU",cidr_block);
+            }
         }
 	*rule_count += 1;
     }
@@ -770,6 +783,8 @@ static struct argp_option options[] = {
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
+     {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
+    {"passthrough", 'f', NULL, 0, "list passthrough rules <optional list>", 0},
     {0}};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -777,17 +792,17 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     program_name = state->name;
     switch (key)
     {
-    case 'I':
-        add = true;
-        break;
     case 'D':
         delete = true;
         break;
-    case 'L':
-        list = true;
-        break;
     case 'F':
         flush = true;
+        break;
+    case 'I':
+        add = true;
+        break;
+    case 'L':
+        list = true;
         break;
     case 'c':
         if (!inet_aton(arg, &cidr))
@@ -798,21 +813,23 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         cd = true;
         break;
-    case 'm':
-        plen = len2u16(arg);
-        pl = true;
-        break;
-    case 'l':
-        low_port = port2s(arg);
-        lpt = true;
+    case 'f':
+        passthru = true;
         break;
     case 'h':
         high_port = port2s(arg);
         hpt = true;
         break;
-    case 't':
-        tproxy_port = port2s(arg);
-        tpt = true;
+    case 'i':
+        intercept = true;
+        break;
+    case 'l':
+        low_port = port2s(arg);
+        lpt = true;
+        break;
+    case 'm':
+        plen = len2u16(arg);
+        pl = true;
         break;
     case 'p':
         if ((strcmp("tcp", arg) == 0) || (strcmp("TCP", arg) == 0))
@@ -834,6 +851,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         break;
     case 'r':
         route = true;
+        break;
+    case 't':
+        tproxy_port = port2s(arg);
+        tpt = true;
         break;
     default:
         return ARGP_ERR_UNKNOWN;
