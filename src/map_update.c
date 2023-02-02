@@ -316,12 +316,12 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
                 printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
                 dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                *rule_count += 1;
+                
             }else{
                 printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
                 dpts, "PASSTHRU",cidr_block);
-                *rule_count += 1;
             }
+            *rule_count += 1;
         }
     }
     free(dpts);
