@@ -875,6 +875,10 @@ int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if((intercept || passthru) && !list){
+        usage("Missing argument -L, --list");
+    }
+
     if (add)
     {
         if (!cd)
