@@ -3,17 +3,17 @@
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
 ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
 edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for
-the services defined and to instead call map_update for tproxy redirection. example edge code at 
-https://github.com/r-caamano/edge/tree/v0.26.11 assumes map_update binary is in the ziti-router's search path and the
+the services defined and to instead call etables for tproxy redirection. example edge code at 
+https://github.com/r-caamano/edge/tree/v0.26.11 assumes etables binary is in the ziti-router's search path and the
 eBPF program is loaded via linux tc command per instructions below. Those interested on how to setup an openziti
 development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception
 only occurs for traffic ingressing on the interface that the eBPF program is attached to. To intercept packets generated
 locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also
 provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will
-allow ssh to any address inbound however after the first tproxy mapping is inserted by the map_update tool it will only
+allow ssh to any address inbound however after the first tproxy mapping is inserted by the etables tool it will only
 allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be
 configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The
-open ziti edge-router then uses the map_update user space app to insert rules to allow traffic in on the interface tc is
+open ziti edge-router then uses the etables user space app to insert rules to allow traffic in on the interface tc is
 running on. For those interested in additional background on the project please visit: 
 https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
@@ -43,7 +43,7 @@ sudo ufw allow in on <interface name> to any
 ```
 
 ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
-services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
+services are provisioned as inbound intercepts via the etables app. Router will statefully allow responses to router
 initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
 
 ### Openziti Ingress
@@ -54,12 +54,12 @@ Grab the edge router binary `(>= v0.27.3)` at [open ziti](https://github.com/ope
 
 ```bash
 # Copy the user space map program to folder in $PATH i.e
-sudo cp map_update /usr/bin
+sudo cp etables /usr/bin
 
 # In the router config.yml set tunnel mode to ebpf i.e.   
 - binding: tunnel
   options:
-    mode: tproxy:/path/to/map_update
+    mode: tproxy:/path/to/etables
 
 # Run edge router command 
 # Note: assumption - ziti-router and config.yml in PATH
@@ -77,9 +77,9 @@ sudo tc qdisc del dev <interface name>  clsact
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
 ```bash
-Usage: ./map_update -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
+Usage: ./etables -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
 
-sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
+sudo ./etables -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
 ```
 
 As mentioned earlier if you add -r, --route as argument the program will add 172.16.240.0/24 to the "lo" interface if it
@@ -90,7 +90,7 @@ Example: Insert FW rule for local router tcp listen port 443 where local router'
 with tproxy_port set to 0 signifying local connect rule
 
 ```bash
-sudo ./map_update -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
+sudo ./etables -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
 ```
 
 Example: Monitor ebpf trace messages
@@ -114,23 +114,23 @@ sudo cat /sys/kernel/debug/tracing/trace_pipe
 ```
 Example: Remove previous entry from map
 ```bash
-Usage: ./map_update -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
+Usage: ./etables -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
 
-sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
+sudo ./etables -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 ```
 
 Example: Remove all entries from map
 ```
-Usage: ./map_update -F
+Usage: ./etables -F
 
-sudo ./map_update -F
+sudo ./etables -F
 ```
 
 Example: List all rules in map
 ```
-Usage: ./map_update -L
+Usage: ./etables -L
 
-sudo ./map_update -L
+sudo ./etables -L
 
 target     proto    source          destination               mapping:
 ------     -----    --------        ------------------        ---------------------------------------------------------
@@ -147,9 +147,9 @@ PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535  
 ```
 Example: List rules in map for a given prefix and protocol
 ```bash
-# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+# Usage: ./etables -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
   
-sudo map_update -L -c 192.168.100.100 -m 32 -p udp
+sudo etables -L -c 192.168.100.100 -m 32 -p udp
   
 target     proto    source           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
@@ -158,9 +158,9 @@ PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	
 
 Example: List rules in map for a given prefix
 ```bash
-# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+# Usage: ./etables -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
-sudo map_update -L -c 192.168.100.100 -m 32
+sudo etables -L -c 192.168.100.100 -m 32
 
 target     proto    source           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------

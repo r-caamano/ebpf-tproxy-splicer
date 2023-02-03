@@ -30,7 +30,7 @@ jobs:
       - name:  Compile Object file from Source
         run: |
           clang -D BPF_MAX_ENTRIES=${{matrix.map_type.size}} -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
-          clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
+          clang -O2 -Wall -Wextra -o files/objects/etables src/etables.c 
           chmod +x files/scripts/tproxy_splicer_startup.sh
         
       - name: Tar Object File

@@ -57,25 +57,25 @@ attach_ebpf_program()
 function update_map_local() 
 {
     # Save full path of map update into a variable
-    if [ -f "$map_update" ]; then
+    if [ -f "$etables" ]; then
         # Get Ziti Fabric Port/Transport
         ZITI_FPORT=$(cat $router_config_file |yq .ctrl.endpoint |awk -v FS=':' '{print $3}')
         ZITI_FTRANSPORT=$(cat $router_config_file |yq .ctrl.endpoint |awk -v FS=':' '{print $1}')
         if [ "$ZITI_FTRANSPORT" == "tls" ]; then
-            $map_update -I -c $LANIP -m 32 -l $ZITI_FPORT -h $ZITI_FPORT -t 0 -p tcp
+            $etables -I -c $LANIP -m 32 -l $ZITI_FPORT -h $ZITI_FPORT -t 0 -p tcp
         fi
         # Get Ziti Client Port/Transport
         ZITI_CPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $3}')
         ZITI_CTRANSPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $1}')
         if [ "$ZITI_CTRANSPORT" == "tls" ]; then
-            $map_update -I -c $LANIP -m 32 -l $ZITI_CPORT -h $ZITI_CPORT -t 0 -p tcp
+            $etables -I -c $LANIP -m 32 -l $ZITI_CPORT -h $ZITI_CPORT -t 0 -p tcp
         fi
         # DNS
-        $map_update -I -c $LANIP -m 32 -l 53 -h 53 -t 0 -p udp
+        $etables -I -c $LANIP -m 32 -l 53 -h 53 -t 0 -p udp
         # Get Health-Check Port
         ZITI_HCPORT=$(cat $router_config_file |yq '.web[] | select(.name == "health-check").bindPoints[].address' | awk -v FS=':' '{print $2}')
         if [ "$ZITI_HCPORT" ]; then
-            $map_update -I -c $LANIP -m 32 -l $ZITI_HCPORT -h $ZITI_HCPORT -t 0 -p tcp
+            $etables -I -c $LANIP -m 32 -l $ZITI_HCPORT -h $ZITI_HCPORT -t 0 -p tcp
         fi
     fi
 }
@@ -111,7 +111,7 @@ done
 CLOUD_ZITI_HOME="/opt/netfoundry"
 EBPF_HOME="$CLOUD_ZITI_HOME/ebpf"
 router_config_file="$CLOUD_ZITI_HOME/ziti/ziti-router/config.yml"
-map_update="$EBPF_HOME/objects/map_update"
+etables="$EBPF_HOME/objects/etables"
 # Is router config file present?
 if [ -f "$router_config_file" ]; then
     # Look up tunnel edge binding
@@ -125,10 +125,10 @@ if [ -f "$router_config_file" ]; then
                 echo "Inital set up starting"
                 attach_ebpf_program
                 # set it to env var
-                export map_update
-                yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy:"+strenv(map_update)' $router_config_file 
+                export etables
+                yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy:"+strenv(etables)' $router_config_file 
                 # unset it to env var
-                unset map_update
+                unset etables
                 cp $EBPF_HOME/services/ziti-router.service /etc/systemd/system/
                 /usr/bin/systemctl daemon-reload 
                 /usr/bin/systemctl restart ziti-router.service
@@ -138,7 +138,7 @@ if [ -f "$router_config_file" ]; then
         else 
             # Check if tproxy is already set for ebpf mode by evaluating value of mode furthur
             tproxy_ebpf_path=`echo $TMODE | awk -v FS=':' '{print $2}'`
-            if [ "$tproxy_ebpf_path" == "$map_update" ]; then
+            if [ "$tproxy_ebpf_path" == "$etables" ]; then
                 if [ $REVERT_TPROXY == true ]; then
                     echo "Reverting back to tproxy iptables"
                     # Look up the value of lanIf
