@@ -338,6 +338,8 @@ void usage(char *message)
     fprintf(stderr, "       etables -L -c <ip dest address or prefix> -m <prefix length>\n");
     fprintf(stderr, "       etables -F\n");
     fprintf(stderr, "       etables -L\n");
+    fprintf(stderr, "       etables -L -i\n");
+    fprintf(stderr, "       etables -L -f\n");
     fprintf(stderr, "       etables -V\n");
     fprintf(stderr, "       etables --help\n");
     exit(1);
@@ -872,6 +874,14 @@ struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
+
+    if((intercept || passthru) && !list){
+        usage("Missing argument -L, --list");
+    }
+
+    if(route && (!add && !delete && !flush)){
+        usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
+    }
 
     if (add)
     {
