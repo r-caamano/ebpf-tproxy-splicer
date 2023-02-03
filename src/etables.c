@@ -879,6 +879,10 @@ int main(int argc, char **argv)
         usage("Missing argument -L, --list");
     }
 
+    if(route && (!add && !delete && !flush)){
+        usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
+    }
+
     if (add)
     {
         if (!cd)
