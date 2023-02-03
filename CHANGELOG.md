@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added 
 
-- added 2 options to etables program
+- added 2 options to etables program to further filter option -L --list
     - `-f, --passthrough`    list passthrough rules <optional list>
     - `-i, --intercepts`     list intercept rules <optional for list>
 
