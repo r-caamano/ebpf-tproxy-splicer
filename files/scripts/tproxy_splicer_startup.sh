@@ -5,11 +5,12 @@ function usage()
 {
     cat <<USAGE
 
-    Usage: tproxy_splicer_startup.sh [--initial-setup] [--revert-tproxy]
+    Usage: tproxy_splicer_startup.sh [--initial-setup] [--revert-tproxy] [--check-ebpf-status]
 
     Options:
-        --initial-setup  true if setting up ebpf for first time
-        --revert-tproxy  true if reverting back to tproxy with iptables
+        --initial-setup         true if setting up ebpf for first time
+        --revert-tproxy         true if reverting back to tproxy with iptables
+        --check-ebpf-status     true if just checking the status of ebpf program
         -V, --version    current version
         -h, --help       help menu
 USAGE
@@ -36,18 +37,29 @@ attach_ebpf_program()
         ATTACHED=`eval /usr/sbin/tc filter show dev $LANIF ingress`
         # Check if tproxy splicer ebpf is attached 
         if [ $(echo  $ATTACHED | grep -w -c tproxy_splicer.o) == 1 ]; then  
-            echo "Found ebpf program tproxy_splicer and will re-add it to $LANIF now"
-            /usr/sbin/tc qdisc del dev $LANIF clsact
-            /usr/sbin/tc qdisc add dev $LANIF clsact
-            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
-            ufw allow in on $LANIF to any            
+            if [ $CHECK_EBPF_STATUS == false ]; then
+                echo "INFO: Found ebpf program tproxy_splicer and will re-add it to $LANIF now"
+                /usr/sbin/tc qdisc del dev $LANIF clsact
+                /usr/sbin/tc qdisc add dev $LANIF clsact
+                /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $tproxy_splicer_path sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
+                ufw allow in on $LANIF to any 
+            else
+                echo "INFO: It looks like ebpf is enabled; tproxy splicer is attached to $LANIF"
+                echo "TRACE: $ATTACHED"
+            fi           
         else
-            echo "Not Found ebpf program tproxy_splicer and will add it to $LANIF now"
-            /usr/sbin/tc qdisc add dev $LANIF clsact
-            /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $EBPF_HOME/objects/tproxy_splicer.o sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
-            ufw allow in on $LANIF to any
+            if [ $CHECK_EBPF_STATUS == false ]; then
+                echo "INFO: Not Found ebpf program tproxy_splicer and will add it to $LANIF now"
+                /usr/sbin/tc qdisc add dev $LANIF clsact
+                /usr/sbin/tc filter add dev $LANIF ingress bpf da obj $tproxy_splicer_path sec action || { /usr/sbin/tc qdisc del dev $LANIF clsact; exit 1; }
+                ufw allow in on $LANIF to any
+            else
+                echo "INFO: Ebpf is not enabled; tproxy splicer is not attached to $LANIF"
+            fi
         fi
-        update_map_local
+        if [ $CHECK_EBPF_STATUS == false ]; then
+            update_map_local
+        fi
     else
         echo "ERROR: lanIf not found in $router_config_file, check the config file"
     fi
@@ -59,8 +71,8 @@ function update_map_local()
     # Save full path of map update into a variable
     if [ -f "$etables" ]; then
         # Get Ziti Fabric Port/Transport
-        ZITI_FPORT=$(cat $router_config_file |yq .ctrl.endpoint |awk -v FS=':' '{print $3}')
-        ZITI_FTRANSPORT=$(cat $router_config_file |yq .ctrl.endpoint |awk -v FS=':' '{print $1}')
+        ZITI_FPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $3}')
+        ZITI_FTRANSPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $1}')
         if [ "$ZITI_FTRANSPORT" == "tls" ]; then
             $etables -I -c $LANIP -m 32 -l $ZITI_FPORT -h $ZITI_FPORT -t 0 -p tcp
         fi
@@ -89,6 +101,7 @@ function update_map_local()
 
 INITIAL_SETUP=false
 REVERT_TPROXY=false
+CHECK_EBPF_STATUS=false
 
 while [ "$1" != "" ]; do
     case $1 in
@@ -96,6 +109,8 @@ while [ "$1" != "" ]; do
         INITIAL_SETUP=true;;
     --revert-tproxy)
         REVERT_TPROXY=true;;
+    --check-ebpf-status)
+        CHECK_EBPF_STATUS=true;;
     -h | --help)
         usage;;
     -V | --version)
@@ -112,6 +127,8 @@ CLOUD_ZITI_HOME="/opt/netfoundry"
 EBPF_HOME="$CLOUD_ZITI_HOME/ebpf"
 router_config_file="$CLOUD_ZITI_HOME/ziti/ziti-router/config.yml"
 etables="$EBPF_HOME/objects/etables"
+tproxy_splicer_path="$EBPF_HOME/objects/tproxy_splicer.o"
+zt_router_service_path="$EBPF_HOME/services/ziti-router.service"
 # Is router config file present?
 if [ -f "$router_config_file" ]; then
     # Look up tunnel edge binding
@@ -121,26 +138,34 @@ if [ -f "$router_config_file" ]; then
         TMODE=$(cat $CLOUD_ZITI_HOME/ziti/ziti-router/config.yml |yq '.listeners[] | select(.binding == "tunnel").options.mode')
         # If tproxy is set and initial set flag is set, both true?
         if [ "$TMODE" == null ] || [ "$TMODE" == "tproxy" ]; then
-            if [ $INITIAL_SETUP == true ] && [ -f "$EBPF_HOME/services/ziti-router.service" ]; then
-                echo "Inital set up starting"
-                attach_ebpf_program
-                # set it to env var
-                export etables
-                yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy:"+strenv(etables)' $router_config_file 
-                # unset it to env var
-                unset etables
-                cp $EBPF_HOME/services/ziti-router.service /etc/systemd/system/
-                /usr/bin/systemctl daemon-reload 
-                /usr/bin/systemctl restart ziti-router.service
+            if [ $INITIAL_SETUP == true ] ; then
+                echo "INFO: Checking if diverter installed"
+                if [ ! -f $tproxy_splicer_path ] || [ ! -f $zt_router_service_path ]; then
+                    echo "ERROR: Diverter not installed, please run diverter-update command to install it"
+                else
+                    echo "INFO: Initial setup starting"
+                    attach_ebpf_program
+                    # set it to env var
+                    export etables
+                    yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy:"+strenv(etables)' $router_config_file 
+                    # unset it to env var
+                    unset etables
+                    cp $EBPF_HOME/services/ziti-router.service /etc/systemd/system/
+                    /usr/bin/systemctl daemon-reload 
+                    /usr/bin/systemctl restart ziti-router.service
+                fi
             else
                 echo "INFO: MODE $TMODE is configured and initial setup flag is $INITIAL_SETUP. Nothing to do"
+                if [ $CHECK_EBPF_STATUS == true ]; then
+                    echo "INFO: Ebpf is not enabled; tproxy splicer is not attached to LANIF"
+                fi
             fi 
         else 
             # Check if tproxy is already set for ebpf mode by evaluating value of mode furthur
             tproxy_ebpf_path=`echo $TMODE | awk -v FS=':' '{print $2}'`
             if [ "$tproxy_ebpf_path" == "$etables" ]; then
                 if [ $REVERT_TPROXY == true ]; then
-                    echo "Reverting back to tproxy iptables"
+                    echo "INFO: Reverting back to tproxy iptables"
                     # Look up the value of lanIf
                     LANIF=$(cat $router_config_file |yq '.listeners[] | select(.binding == "tunnel").options.lanIf')
                     # Check if lanIf is not empty
@@ -160,7 +185,6 @@ if [ -f "$router_config_file" ]; then
                         echo "ERROR: lanIf value is missing, could not revert config back to tproxy with iptables"
                     fi
                 else
-                    echo "INFO: Re-attaching ebpf program"
                     attach_ebpf_program
                 fi
             else

@@ -68,7 +68,7 @@ static char *protocol_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
-const char *argp_program_version = "0.2.1";
+const char *argp_program_version = "0.2.2";
 
 struct ifindex_ip4
 {
