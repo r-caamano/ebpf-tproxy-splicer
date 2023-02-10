@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+---
+
+## [0.2.2] - 2023-02-10
+
+### Added
+
+- 2 options to tproxy startup script
+    - `--add-user-ingress-rules`        true if adding user ingress rules to ebpf map (based on yaml formatted content of ebpf_user_file=$EBPF_HOME/user_ingress_rules.yml)
+    - `--delete-user-ingress-rules`     true if deleting user ingress rules from ebpf map (based on yaml formatted content of ebpf_user_file=$EBPF_HOME/user_ingress_rules.yml)
+
+### Changed
+
+- `--check-ebpf-status`  - now it indicates if the ebpf program is attached and shows the interface name in addtion to the trace raw command details.
+
+---
 
 ## [0.2.1] - 2023-02-03
 
@@ -11,9 +26,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Added 
 
-- added 2 options to etables program to further filter option -L --list
+- 2 options to etables program to further filter option -L --list
     - `-f, --passthrough`    list passthrough rules <optional list>
     - `-i, --intercepts`     list intercept rules <optional for list>
+
+---
 
 ## [0.2.0] - 2023-01-31
 
@@ -23,6 +40,8 @@ All notable changes to this project will be documented in this file. The format 
     - small  = 1000  entries
     - medium = 5000  entries
     - large  = 10000 entries
+
+---
 
 ## [0.1.0] - 2023-01-30
 
