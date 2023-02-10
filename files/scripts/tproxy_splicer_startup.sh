@@ -12,7 +12,7 @@ function usage()
         --revert-tproxy                 true if reverting back to tproxy with iptables
         --check-ebpf-status             true if just checking the status of ebpf program
         --add-user-ingress-rules        true if adding user ingress rules to ebpf map
-        --delete-user-ingress-rules     true if deleting user ingress rules to ebpf map
+        --delete-user-ingress-rules     true if deleting user ingress rules from ebpf map
         -V, --version    current version
         -h, --help       help menu
 USAGE
