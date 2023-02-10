@@ -51,7 +51,7 @@ attach_ebpf_program()
                     update_map_user
                 # Then it is status check
                 else
-                    echo "INFO: It looks like ebpf is enabled; tproxy splicer is attached to $LANIF"
+                    echo "INFO: Ebpf is enabled; tproxy splicer is attached to $LANIF"
                     echo "TRACE: $ATTACHED"
                 fi
             fi           
