@@ -354,7 +354,6 @@ bool interface_map(){
     }
     if_map.map_fd = if_fd;
     int idx = 0;
-
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
