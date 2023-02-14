@@ -68,7 +68,7 @@ static char *protocol_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
-const char *argp_program_version = "0.2.2";
+const char *argp_program_version = "0.2.3";
 
 struct ifindex_ip4
 {
@@ -386,8 +386,7 @@ bool interface_map(){
     bool create_route = true;
     while (address)
     {
-        int family = address->ifa_addr->sa_family;
-        if (family == AF_INET)
+        if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
         {
             get_index(address->ifa_name, &idx);
             if (strncmp(address->ifa_name, "lo", 2))
