@@ -68,7 +68,7 @@ static char *protocol_name;
 static __u8 protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
-const char *argp_program_version = "0.2.3";
+const char *argp_program_version = "0.2.4";
 
 struct ifindex_ip4
 {
@@ -813,7 +813,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'c':
         if (!inet_aton(arg, &cidr))
         {
-            fprintf(stderr, "Invalid IP Address for arg -p, --protocol: %s\n", arg);
+            fprintf(stderr, "Invalid IP Address for arg -c, --cidr-block: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
