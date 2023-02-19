@@ -42,7 +42,7 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define MAX_INDEX_ENTRIES 120 // MAX port ranges per prefix
+#define MAX_INDEX_ENTRIES 50 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536 // PORT MApping table size
 
 static bool add = false;
@@ -52,18 +52,22 @@ static bool flush = false;
 static bool lpt = false;
 static bool hpt = false;
 static bool tpt = false;
-static bool pl = false;
+static bool dl = false;
+static bool sl = false;
 static bool cd = false;
+static bool cs = false;
 static bool prot = false;
 static bool route = false;
-static struct in_addr cidr;
-static unsigned short plen;
+static struct in_addr dcidr;
+static struct in_addr scidr;
+static unsigned short dplen;
+static unsigned short splen;
 static unsigned short low_port;
 static unsigned short high_port;
 static unsigned short tproxy_port;
 static char *program_name;
 static char *protocol_name;
-static __u8 protocol;
+static unsigned short protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "map_update -- ebpf mapping tool";
 const char *argp_program_version = "0.2.0";
@@ -91,8 +95,11 @@ struct tproxy_tuple
 struct tproxy_key
 {
     __u32 dst_ip;
-    __u16 prefix_len;
+    __u32 src_ip;
+    __u16 dprefix_len;
+    __u16 sprefix_len;
     __u16 protocol;
+    __u16 pad;
 };
 
 /*function to add loopback binding for intercept IP prefixes that do not
@@ -209,7 +216,7 @@ __u16 len2u16(char *len)
 {
     char *endPtr;
     int32_t tmpint = strtol(len, &endPtr, 10);
-    if ((tmpint <= 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
+    if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
         exit(1);
@@ -287,9 +294,12 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     {
         proto = "unknown";
     }
-    char *prefix = nitoa(ntohl(key->dst_ip));
-    char *cidr_block = malloc(19);
-    sprintf(cidr_block, "%s/%d", prefix, key->prefix_len);
+    char *dprefix = nitoa(ntohl(key->dst_ip));
+    char *dcidr_block = malloc(19);
+    sprintf(dcidr_block, "%s/%d", dprefix, key->dprefix_len);
+    char *sprefix = nitoa(ntohl(key->src_ip));
+    char *scidr_block = malloc(19);
+    sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
 
     int x = 0;
@@ -298,17 +308,17 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
             ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
         if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
+            printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
         }else{
-            printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
-               dpts, "PASSTHRU",cidr_block);
+            printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, scidr_block, dcidr_block,
+               dpts, "PASSTHRU",dcidr_block);
         }
 	*rule_count += 1;
     }
     free(dpts);
-    free(cidr_block);
-    free(prefix);
+    free(dcidr_block);
+    free(dprefix);
 }
 
 void usage(char *message)
@@ -375,7 +385,7 @@ bool interface_map(){
                 ifip = ipaddr->sin_addr.s_addr;
                 struct sockaddr_in *network_mask = (struct sockaddr_in *)address->ifa_netmask;
                 __u32 netmask = ntohl(network_mask->sin_addr.s_addr);
-                ipcheck = is_subset(ntohl(ifip) ,netmask,ntohl(cidr.s_addr));
+                ipcheck = is_subset(ntohl(ifip) ,netmask,ntohl(dcidr.s_addr));
                 if(!ipcheck){
                     create_route = false;
                 }
@@ -408,7 +418,7 @@ void map_insert()
 {
     bool route_insert = interface_map();
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
@@ -469,7 +479,7 @@ void map_insert()
             exit(1);
         }
 	    if(route && route_insert){
-           bind_prefix(&cidr, plen);
+           bind_prefix(&dcidr, dplen);
         }
     }
     else
@@ -497,8 +507,8 @@ void map_insert()
 void map_delete_key(struct tproxy_key key)
 {
     char *prefix = nitoa(ntohl(key.dst_ip));
-    inet_aton(prefix, &cidr);
-    plen = key.prefix_len;
+    inet_aton(prefix, &dcidr);
+    dplen = key.dprefix_len;
     free(prefix);
     bool route_delete = interface_map();
     union bpf_attr map;
@@ -522,7 +532,7 @@ void map_delete_key(struct tproxy_key key)
     else
     {
         if(route && route_delete){
-            unbind_prefix(&cidr,plen);
+            unbind_prefix(&dcidr,dplen);
         }
     }
     close(fd);
@@ -532,7 +542,7 @@ void map_delete()
 {
     bool route_delete = interface_map();
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
@@ -598,7 +608,7 @@ void map_delete()
             {
                 printf("Last Element: Hash Entry Deleted\n");
                 if(route && route_delete){
-		            unbind_prefix(&cidr,plen);
+		            unbind_prefix(&dcidr,dplen);
                 }
                 exit(0);
             }
@@ -656,7 +666,7 @@ void map_flush()
 void map_list()
 {
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
@@ -673,8 +683,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
-    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -692,7 +702,7 @@ void map_list()
         for (; x < 2; x++)
         {
             rule_count = 0;
-            struct tproxy_key vkey = {cidr.s_addr, plen, vprot[x]};
+            struct tproxy_key vkey = {dcidr.s_addr, scidr.s_addr, dplen, splen, vprot[x], 0};
             map.key = (uint64_t)&vkey;
             lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
             if (!lookup)
@@ -728,8 +738,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
-    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
     int rule_count=0;
     while (true)
     {
@@ -762,8 +772,10 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"cidr-block", 'c', "", 0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"prefix-len", 'm', "", 0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"scidr-block", 's', "", 0, "Set src ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"sprefix-len", 'n', "", 0, "Set src prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
@@ -789,25 +801,38 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         flush = true;
         break;
     case 'c':
-        if (!inet_aton(arg, &cidr))
+        if (!inet_aton(arg, &dcidr))
         {
-            fprintf(stderr, "Invalid IP Address for arg -p, --protocol: %s\n", arg);
+            fprintf(stderr, "Invalid IP Address for arg -c, --dcidr-block: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
         cd = true;
         break;
-    case 'm':
-        plen = len2u16(arg);
-        pl = true;
+    case 'h':
+        high_port = port2s(arg);
+        hpt = true;
         break;
     case 'l':
         low_port = port2s(arg);
         lpt = true;
         break;
-    case 'h':
-        high_port = port2s(arg);
-        hpt = true;
+    case 'm':
+        dplen = len2u16(arg);
+        dl = true;
+        break;
+    case 'n':
+        splen = len2u16(arg);
+        sl = true;
+        break;
+    case 's':
+        if (!inet_aton(arg, &scidr))
+        {
+            fprintf(stderr, "Invalid IP Address for arg -s, --scidr-block: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        cs = true;
         break;
     case 't':
         tproxy_port = port2s(arg);
@@ -852,7 +877,7 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
@@ -874,6 +899,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if(!cs){
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }else{
+                if(!sl){
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_insert();
         }
     }
@@ -883,7 +916,7 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
@@ -897,6 +930,14 @@ int main(int argc, char **argv)
         }
         else
         {
+            if(!cs){
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }else{
+                if(!sl){
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_delete();
         }
     }
@@ -906,7 +947,7 @@ int main(int argc, char **argv)
     }
     else if (list)
     {
-        if (!cd && !pl)
+        if (!cd && !dl)
         {
             map_list_all();
         }
@@ -914,12 +955,20 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
         else
         {
+            if(!cs){
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }else{
+                if(!sl){
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_list();
         }
     }
