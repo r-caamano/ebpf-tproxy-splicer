@@ -369,9 +369,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
     __u32 smask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
-    if(tuple->ipv4.daddr != 0x010110ac){
-       return TC_ACT_SHOT;
-    }
     for (__u16 dcount = 0;dcount <= maxlen; dcount++){
             
             /*
@@ -381,7 +378,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             for (__u16 scount = 0; scount <= maxlen; scount++){
                 
                 struct tproxy_key key = {(tuple->ipv4.daddr & dmask),(tuple->ipv4.saddr & smask), maxlen-dcount, maxlen-scount, protocol, 0};
-                if ((tproxy = get_tproxy(key)) && local_ip4){
+                if ((tproxy = get_tproxy(key))){
                      insert_matched_key(key,0);
                      bpf_tail_call(skb, &prog_map, 1);
                 }
