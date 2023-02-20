@@ -93,8 +93,8 @@ struct bpf_elf_map SEC("maps") prog_map = {
 	.id		= 3,
 	.size_key	= sizeof(uint32_t),
 	.size_value	= sizeof(uint32_t),
-	.pinning	= PIN_OBJECT_NS,
-	.max_elem	= 2,
+	.pinning	= PIN_GLOBAL_NS,
+	.max_elem	= 3,
 };
 
 /*matched key map*/
@@ -288,7 +288,6 @@ static inline void iterate_masks(__u32 *mask, __u32 *exponent){
 
 
 //ebpf tc code
-
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
@@ -298,7 +297,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool udp=false;
     bool tcp=false;
     bool arp=false;
-    int protocol;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -335,8 +333,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
        return TC_ACT_OK;
     }
 
-    /* declare tproxy tuple as key for tpoxy mapping lookups */
-    struct tproxy_tuple *tproxy;  
+
 
     /* allow ssh to local system */
     if(((!local_ip4) || (!local_ip4->ipaddr)) || (tuple->ipv4.daddr == local_ip4->ipaddr)){
@@ -349,20 +346,30 @@ int bpf_sk_splice(struct __sk_buff *skb){
     if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
        return TC_ACT_OK;
     }
+    bpf_tail_call(skb, &prog_map, 1);
+    return TC_ACT_SHOT;
+}
 
-    /* if tcp based tuple implement statefull inspection to see if they were
-     * initiated by the local OS if not pass on to tproxy logic to determin if the
-     * openziti router has tproxy intercepts defined for the flow
-     */
-    if(tcp){
-       protocol = IPPROTO_TCP;
-    }else{
-    /* if udp based tuple implement statefull inspection to see if they were
-     * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
-     * openziti router has tproxy intercepts defined for the flow
-     */
-	protocol = IPPROTO_UDP;   
+
+SEC("3/1")
+int bpf_sk_splice1(struct __sk_buff *skb){
+    struct bpf_sock_tuple *tuple;
+    int tuple_len;
+    int protocol;
+
+    /* find ethernet header from skb->data pointer */
+    struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
+    
+
+    /* check if incomming packet is a UDP or TCP tuple */
+    struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+    protocol = iph->protocol;
+    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+    tuple_len = sizeof(tuple->ipv4);
+    if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+       return TC_ACT_SHOT;
     }
+	struct tproxy_tuple *tproxy;
     __u32 dexponent=24;  /* unsugend integer used to calulate prefix matches */
     __u32 dmask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u32 sexponent=24;  /* unsugend integer used to calulate prefix matches */
@@ -380,7 +387,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 struct tproxy_key key = {(tuple->ipv4.daddr & dmask),(tuple->ipv4.saddr & smask), maxlen-dcount, maxlen-scount, protocol, 0};
                 if ((tproxy = get_tproxy(key))){
                      insert_matched_key(key,0);
-                     bpf_tail_call(skb, &prog_map, 1);
+                     bpf_tail_call(skb, &prog_map, 2);
                 }
                 
                 if(smask == 0x00000000){
@@ -403,22 +410,15 @@ int bpf_sk_splice(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
-SEC("3/1")
-int bpf_sk_splice1(struct __sk_buff *skb){
+SEC("3/2")
+int bpf_sk_splice2(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
     int tuple_len;
-    bool ipv4 = false;
-    bool ipv6 = false;
-    bool udp=false;
-    bool tcp=false;
-    bool arp=false;
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
-    /* verify its a valid eth header within the packet bounds */
-    if ((unsigned long)(eth + 1) > (unsigned long)skb->data_end){
-            return TC_ACT_SHOT;
-	}
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
+    struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+    tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
+    //tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
     if(!tuple){
        return TC_ACT_SHOT;
     }
