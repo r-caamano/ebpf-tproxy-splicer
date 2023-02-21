@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [0.2.5] - 2023-02-21
+
+### Bug Fix
+
+- Added check for maximum port ranges reached for a particular prefix destination 
+
+## [0.2.4] - 2023-02-16
+
+### Bug Fix
+
+- Fixed typo in output when invalid IP address entered
+
+## [0.2.3] - 2023-02-13
+
+### Bug fix
+
+- Fixed issue where if an interface exists that has an UNSPEC address family caused etables binary to segment fault.
+
+
 ## [0.2.2] - 2023-02-10
 
 ### Added
