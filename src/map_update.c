@@ -231,8 +231,13 @@ void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_t
     }
     if (is_new)
     {
-        tuple->index_table[tuple->index_len] = index;
-        tuple->index_len += 1;
+        if(tuple->index_len < MAX_INDEX_ENTRIES){
+            tuple->index_table[tuple->index_len] = index;
+            tuple->index_len += 1;
+        }else{
+            printf("max port mapping ranges (%d) reached\n", MAX_INDEX_ENTRIES);
+            return;
+        }
     }
     memcpy((void *)&tuple->port_mapping[index], (void *)mapping, sizeof(struct tproxy_port_mapping));
 }
@@ -479,7 +484,7 @@ void map_insert()
         add_index(index, &port_mapping, &orule);
         if (!(orule.port_mapping[index].low_port == index))
         {
-            printf("memcpy failed");
+            printf("Failed Insert\n");
             close(fd);
             exit(1);
         }
