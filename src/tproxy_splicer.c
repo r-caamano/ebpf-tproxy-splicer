@@ -37,7 +37,7 @@
 #define BPF_MAP_ID_MATCHED_KEY 4
 #define BPF_MAP_ID_MATCHED_COUNT 5
 #define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  50 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_INDEX_ENTRIES  2 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
@@ -476,9 +476,6 @@ int bpf_sk_splice2(struct __sk_buff *skb){
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
     uint16_t *match_count = get_matched_count(0);
-    if(tuple->ipv4.daddr != 0x010110ac){
-       return TC_ACT_SHOT;
-    }
     for (__u16 dcount = 0;dcount <= maxlen; dcount++){
             
             /*
@@ -486,13 +483,8 @@ int bpf_sk_splice2(struct __sk_buff *skb){
              * cidr mask starting with /32 and working down to /1 if no match packet is discarded
              */
             for (__u16 scount = 0; scount <= smaxlen; scount++){
-                if(dmask == 0xffffff && smask == 0x000000){
-                    bpf_printk("dest=%x, dstmask=%x, cidr=%d\n", (tuple->ipv4.daddr & dmask), dmask, 24-dcount);
-                    bpf_printk("src=%x, srcmask=%x, scidr=%d\n", (tuple->ipv4.saddr & smask), smask, smaxlen-scount);
-                }
                 struct tproxy_key key = {(tuple->ipv4.daddr & dmask),(tuple->ipv4.saddr & smask), 24-dcount, smaxlen-scount, protocol, 0};
                 if ((tproxy = get_tproxy(key))){
-                    bpf_printk("here\n");
                     if(match_count && *match_count < MATCHED_KEY_DEPTH){
                         insert_matched_key(key,*match_count);
                         increment_matched_count(0);
@@ -679,8 +671,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     bpf_printk("ip =%x\n",tuple->ipv4.daddr );
     struct tproxy_key *key;
      /*look up attached interface IP address*/
-    //struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
-    
+    struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
+    if(!local_ip4){
+       return TC_ACT_SHOT;
+    }   
     struct tproxy_tuple *tproxy;
     for(__u16 count =0; count < MATCHED_KEY_DEPTH; count++){
         if((key = get_matched_key(count)) && (tproxy = get_tproxy(*key)) && tuple){
@@ -694,7 +688,7 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 
                 if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                 && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
-                    //bpf_printk("%s:", local_ip4->ifname); 
+                    bpf_printk("%s",local_ip4->ifname);
                     bpf_printk("protocol_id=%d",key->protocol);
                     bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
                     bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port));
