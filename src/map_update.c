@@ -42,7 +42,7 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define MAX_INDEX_ENTRIES 2 // MAX port ranges per prefix
+#define MAX_INDEX_ENTRIES 120 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536 // PORT MApping table size
 
 static bool add = false;
