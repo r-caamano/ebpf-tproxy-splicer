@@ -688,7 +688,7 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","origin","destination","mapping:");
     printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
     int rule_count = 0;
     if (prot)
@@ -743,7 +743,7 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n","target","proto","origin","destination","mapping:");
     printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
     int rule_count=0;
     while (true)
@@ -778,7 +778,7 @@ static struct argp_option options[] = {
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"scidr-block", 's', "", 0, "Set src ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"sprefix-len", 'n', "", 0, "Set src prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
@@ -830,7 +830,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         splen = len2u16(arg);
         sl = true;
         break;
-    case 's':
+    case 'o':
         if (!inet_aton(arg, &scidr))
         {
             fprintf(stderr, "Invalid IP Address for arg -s, --scidr-block: %s\n", arg);

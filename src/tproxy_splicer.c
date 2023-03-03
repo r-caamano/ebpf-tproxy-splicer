@@ -308,6 +308,7 @@ static inline void iterate_masks(__u32 *mask, __u32 *exponent){
 //ebpf tc code
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
+    struct bpf_sock *sk; 
     struct bpf_sock_tuple *tuple;
     int tuple_len;
     bool ipv4 = false;
@@ -315,6 +316,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool udp=false;
     bool tcp=false;
     bool arp=false;
+    int ret;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -331,14 +333,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
-	if(skb->ingress_ifindex == 1){
-	   return TC_ACT_OK;
-	}
-	else if(arp){
-           return TC_ACT_OK;
-        }else{
-           return TC_ACT_SHOT;
+        if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
         }
+        else if(arp){
+            return TC_ACT_OK;
+            }else{
+            return TC_ACT_SHOT;
+            }
     }
 
     /* determine length of tupple */
@@ -364,10 +366,58 @@ int bpf_sk_splice(struct __sk_buff *skb){
     if(udp && (bpf_ntohs(tuple->ipv4.sport) == 67) && (bpf_ntohs(tuple->ipv4.dport) == 68)){
        return TC_ACT_OK;
     }
+     /* if tcp based tuple implement statefull inspection to see if they were
+     * initiated by the local OS if not pass on to tproxy logic to determin if the
+     * openziti router has tproxy intercepts defined for the flow
+     */
+    if(tcp){
+       sk = bpf_skc_lookup_tcp(skb, tuple, tuple_len,BPF_F_CURRENT_NETNS, 0);
+       if(sk){
+            if (sk->state != BPF_TCP_LISTEN){
+                goto assign;
+            }
+            bpf_sk_release(sk);
+        }
+    }else{
+    /* if udp based tuple implement statefull inspection to see if they were
+     * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
+     * openziti router has tproxy intercepts defined for the flow
+     */ 
+        sk = bpf_sk_lookup_udp(skb, tuple, tuple_len, BPF_F_CURRENT_NETNS, 0);
+        if(sk){
+           /*
+            * check if there is a dest ip associated with the local socket. if yes jump to assign if not
+            * disregard and release the sk and continue on to check for tproxy mapping.
+            */
+           if(sk->dst_ip4){
+                goto assign;
+           }
+           bpf_sk_release(sk);
+        }
+    }
     //init the match_count_map
     clear_match_tracker(skb->ifindex);
     bpf_tail_call(skb, &prog_map, 1);
-    return TC_ACT_SHOT;
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
+    assign:
+    /*attempt to splice the skb to the tproxy or local socket*/
+    ret = bpf_sk_assign(skb, sk, 0);
+    /*release sk*/
+    bpf_sk_release(sk);
+    if(ret == 0){
+        //if succedded forward to the stack
+        return TC_ACT_OK;
+    }
+    /*else drop packet if not running on loopback*/
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
 }
 
 
@@ -659,7 +709,9 @@ int bpf_sk_splice4(struct __sk_buff *skb){
 
 SEC("3/5")
 int bpf_sk_splice5(struct __sk_buff *skb){
-    struct bpf_sock_tuple *tuple;
+    struct bpf_sock *sk;
+    int ret; 
+    struct bpf_sock_tuple *tuple,sockcheck = {0};
     int tuple_len;
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -713,11 +765,46 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     if(tproxy->port_mapping[port_key].tproxy_port == 0){
                         return TC_ACT_OK;
                     }
+                    sockcheck.ipv4.daddr = 0x0100007f;
+                    sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+                    if(key.protocol == IPPROTO_TCP){
+                        sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+                    }else{
+                        sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+                    }
+                    if(!sk){
+                        return TC_ACT_SHOT;
+                    }
+                    if((key.protocol == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
+                        bpf_sk_release(sk);
+                        return TC_ACT_SHOT;    
+                    }
+                    goto assign;
                 }
             }
         }
     }
-    return TC_ACT_SHOT; 
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
+    assign:
+    /*attempt to splice the skb to the tproxy or local socket*/
+    ret = bpf_sk_assign(skb, sk, 0);
+    /*release sk*/
+    bpf_sk_release(sk);
+    if(ret == 0){
+        //if succedded forward to the stack
+        return TC_ACT_OK;
+    }
+    /*else drop packet if not running on loopback*/
+    if(skb->ingress_ifindex == 1){
+        return TC_ACT_OK;
+    }else{
+        return TC_ACT_SHOT;
+    }
+
 }
 
 SEC("license") const char __license[] = "Dual BSD/GPL";
