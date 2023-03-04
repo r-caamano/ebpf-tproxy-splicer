@@ -106,7 +106,10 @@ struct bpf_elf_map SEC("maps") prog_map = {
 	.max_elem	= 10,
 };
 
-/*matched map*/
+/*map to track up to 3 key matches per incomming packet search.  Map is 
+then used to search for port mappings.  This was required when source filtering was 
+added to accommodate the additional intructions per ebpf program.  The search now spans
+5 ebpf programs  */
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(id, BPF_MAP_ID_MATCHED_KEY);
@@ -230,6 +233,7 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
     __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
+    int ret;
     
     /* check if ARP */
     if (eth_proto == bpf_htons(ETH_P_ARP)) {
@@ -265,7 +269,55 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         /* check if ip protocol is UDP */
         if (proto == IPPROTO_UDP) {
             /* check outter ip header */
-            *udp = true;
+            struct udphdr *udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
+            if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+                bpf_printk("udp header is too big");
+                return NULL;
+            }
+
+            /* If geneve port 6081, then do geneve header verification */
+            if (bpf_ntohs(udph->dest) == GENEVE_UDP_PORT){
+                //bpf_printk("GENEVE MATCH FOUND ON DPORT = %d", bpf_ntohs(udph->dest));
+                //bpf_printk("UDP PAYLOAD LENGTH = %d", bpf_ntohs(udph->len));
+
+                /* read receive geneve version and header length */
+                __u8 *genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
+                if ((unsigned long)(genhdr + 1) > (unsigned long)skb->data_end){
+                    bpf_printk("geneve header is too big");
+                    return NULL;
+                }
+                int gen_ver  = genhdr[0] & 0xC0 >> 6;
+                int gen_hdr_len = genhdr[0] & 0x3F;
+                //bpf_printk("Received Geneve version is %d", gen_ver);
+                //bpf_printk("Received Geneve header length is %d bytes", gen_hdr_len * 4);
+
+                /* if the length is not equal to 32 bytes and version 0 */
+                if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
+                    //bpf_printk("Geneve header length:version error %d:%d", gen_hdr_len * 4, gen_ver);
+                    return NULL;
+                }
+
+                /* Updating the skb to pop geneve header */
+                //bpf_printk("SKB DATA LENGTH =%d", skb->len);
+                ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
+                if (ret) {
+                    //bpf_printk("error calling skb adjust room.");
+                    return NULL;
+                }
+                //bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
+                /* Initialize iph for after popping outer */
+                iph = (struct iphdr *)(skb->data + nh_off);
+                if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                    //bpf_printk("header too big");
+                    return NULL;
+                }
+                proto = iph->protocol;
+                //bpf_printk("INNER Protocol = %d", proto);
+            }
+            /* set udp to true if inner is udp, and let all other inner protos to the next check point */
+            if (proto == IPPROTO_UDP) {
+                *udp = true;
+            }
         }
         /* check if ip protocol is TCP */
         if (proto == IPPROTO_TCP) {
@@ -440,9 +492,9 @@ int bpf_sk_splice1(struct __sk_buff *skb){
        return TC_ACT_SHOT;
     }
 	struct tproxy_tuple *tproxy;
-    __u32 dexponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 dexponent=24;  /* unsigned integer used to calulate prefix matches */
     __u32 dmask = 0xffffffff;  /* starting mask value used in prfix match calculation */
-    __u32 sexponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 sexponent=24;  /* unsigned integer used to calulate prefix matches */
     __u32 smask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
@@ -512,9 +564,9 @@ int bpf_sk_splice2(struct __sk_buff *skb){
        return TC_ACT_SHOT;
     }
 	struct tproxy_tuple *tproxy;
-    __u32 dexponent=16;  /* unsugend integer used to calulate prefix matches */
+    __u32 dexponent=16;  /* unsigned integer used to calulate prefix matches */
     __u32 dmask = 0xffffff;  /* starting mask value used in prfix match calculation */
-    __u32 sexponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 sexponent=24;  /* unsigned integer used to calulate prefix matches */
     __u32 smask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
@@ -586,9 +638,9 @@ int bpf_sk_splice3(struct __sk_buff *skb){
        return TC_ACT_SHOT;
     }
 	struct tproxy_tuple *tproxy;
-    __u32 dexponent=8;  /* unsugend integer used to calulate prefix matches */
+    __u32 dexponent=8;  /* unsigned integer used to calulate prefix matches */
     __u32 dmask = 0xffff;  /* starting mask value used in prfix match calculation */
-    __u32 sexponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 sexponent=24;  /* unsigned integer used to calulate prefix matches */
     __u32 smask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
@@ -655,9 +707,9 @@ int bpf_sk_splice4(struct __sk_buff *skb){
        return TC_ACT_SHOT;
     }
 	struct tproxy_tuple *tproxy;
-    __u32 dexponent=0;  /* unsugend integer used to calulate prefix matches */
+    __u32 dexponent=0;  /* unsigned integer used to calulate prefix matches */
     __u32 dmask = 0xff;  /* starting mask value used in prfix match calculation */
-    __u32 sexponent=24;  /* unsugend integer used to calulate prefix matches */
+    __u32 sexponent=24;  /* unsigned integer used to calulate prefix matches */
     __u32 smask = 0xffffffff;  /* starting mask value used in prfix match calculation */
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
