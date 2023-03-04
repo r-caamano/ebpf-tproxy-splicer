@@ -813,9 +813,9 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                 && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
                     bpf_printk("%s",local_ip4->ifname);
-                    bpf_printk("source_ip=%x",bpf_ntohl(tuple->ipv4.saddr));
-                    bpf_printk("dest_ip=%x",bpf_ntohl(tuple->ipv4.daddr));
-                    bpf_printk("protocol_id=%d",key.protocol);
+                    bpf_printk("source_ip = 0x%X",bpf_ntohl(tuple->ipv4.saddr));
+                    bpf_printk("dest_ip = 0x%X",bpf_ntohl(tuple->ipv4.daddr));
+                    bpf_printk("protocol_id = %d",key.protocol);
                     bpf_printk("tproxy_mapping->%d to %d\n",bpf_ntohs(tuple->ipv4.dport),
                     bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port));
                     if(tproxy->port_mapping[port_key].tproxy_port == 0){
