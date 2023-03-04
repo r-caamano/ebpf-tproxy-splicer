@@ -30,6 +30,7 @@
 #include <stdbool.h>
 #include <linux/tcp.h>
 #include <net/if.h>
+#include <stdio.h>
 
 #define BPF_MAP_ID_TPROXY  1
 #define BPF_MAP_ID_IFINDEX_IP  2
@@ -357,7 +358,7 @@ static inline void iterate_masks(__u32 *mask, __u32 *exponent){
 
 
 
-//ebpf tc code
+//ebpf tc code entry program
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
     struct bpf_sock *sk; 
@@ -472,7 +473,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     }
 }
 
-
+/*Search for keys with Dest mask lengths from /32 down to /25
+* and Source masks /32 down to /0 */
 SEC("3/1")
 int bpf_sk_splice1(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
@@ -503,7 +505,6 @@ int bpf_sk_splice1(struct __sk_buff *skb){
     insert_matched_key(key_tracker, skb->ifindex);
     struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
      if(!tracked_key_data){
-       bpf_printk("dropping1\n");
        return TC_ACT_SHOT;
     }
     for (__u16 dcount = 0;dcount <= maxlen; dcount++){
@@ -545,6 +546,8 @@ int bpf_sk_splice1(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
+/*Search for keys with Dest mask lengths from /24 down to /17
+* and Source masks /32 down to /0 */
 SEC("3/2")
 int bpf_sk_splice2(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
@@ -572,11 +575,7 @@ int bpf_sk_splice2(struct __sk_buff *skb){
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
     struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
-    if(!(tuple->ipv4.daddr == 0x010110ac)){
-        return TC_ACT_SHOT;
-    }
     if(!tracked_key_data){
-       bpf_printk("dropping2\n");
        return TC_ACT_SHOT;
     }
     for (__u16 dcount = 0;dcount <= maxlen; dcount++){
@@ -619,6 +618,8 @@ int bpf_sk_splice2(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
+/*Search for keys with Dest mask lengths from /16 down to /9
+* and Source masks /32 down to /0 */
 SEC("3/3")
 int bpf_sk_splice3(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
@@ -688,6 +689,8 @@ int bpf_sk_splice3(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
+/*Search for keys with Dest mask lengths from /8 down to /0
+* and Source masks /32 down to /0 */
 SEC("3/4")
 int bpf_sk_splice4(struct __sk_buff *skb){
     struct bpf_sock_tuple *tuple;
@@ -779,7 +782,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
        return TC_ACT_SHOT;
     }
-    bpf_printk("ip =%x\n",tuple->ipv4.daddr );
     struct tproxy_key key;
      /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
@@ -811,8 +813,10 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                 && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
                     bpf_printk("%s",local_ip4->ifname);
+                    bpf_printk("source_ip=%x",bpf_ntohl(tuple->ipv4.saddr));
+                    bpf_printk("dest_ip=%x",bpf_ntohl(tuple->ipv4.daddr));
                     bpf_printk("protocol_id=%d",key.protocol);
-                    bpf_printk("tproxy_mapping->%d to %d",bpf_ntohs(tuple->ipv4.dport),
+                    bpf_printk("tproxy_mapping->%d to %d\n",bpf_ntohs(tuple->ipv4.dport),
                     bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port));
                     if(tproxy->port_mapping[port_key].tproxy_port == 0){
                         return TC_ACT_OK;
