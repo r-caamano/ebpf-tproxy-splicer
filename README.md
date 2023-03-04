@@ -90,7 +90,7 @@ does not overlap with an external LAN interface subnet.
 Example: Insert map entry to with source filteing to only allow rule for ip source 10.1.1.1/32.
 
 ```bash
-Usage: ./map_update -I -c `<ip dest address or prefix>` -m `<dest prefix len>` -o `<origin address or prefix>` -n `<origin prefix len>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
+Usage: ./map_update -I -c <ip dest address or prefix> -m <dest prefix len> -o <origin address or prefix> -n <origin prefix len> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
 
 sudo sudo ./map_update -I -c 172.16.240.0 -m 24 -o 10.1.1.1 -n 32  -p tcp -l 22 -h 22 -t 0
 ```
@@ -122,7 +122,7 @@ sudo cat /sys/kernel/debug/tracing/trace_pipe
 ```
 Example: Remove previous entry from map
 ```bash
-Usage: ./map_update -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
+Usage: ./map_update -D -c <ip dest address or prefix> -m <prefix len> -l <low_port> -p <protocol>
 
 sudo ./map_update -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 ```
@@ -155,7 +155,7 @@ PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:655
 ```
 Example: List rules in map for a given prefix and protocol
 ```bash
-# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+# Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
   
 sudo map_update -L -c 192.168.100.100 -m 32 -p udp
   
@@ -166,7 +166,7 @@ PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	
 
 Example: List rules in map for a given prefix
 ```bash
-# Usage: ./map_update -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
+# Usage: ./map_update -L -c <ip dest address or prefix> -m <prefix len> -p <protocol>
 
 sudo map_update -L -c 192.168.100.100 -m 32
 
