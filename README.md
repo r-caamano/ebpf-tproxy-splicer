@@ -79,7 +79,7 @@ sudo tc qdisc del dev <interface name>  clsact
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
 ```bash
-Usage: ./map_update -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
+Usage: ./map_update -I <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
 
 sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
 ```
