@@ -244,6 +244,7 @@ if [ -n "${new_domain_name_servers}" ]; then
 
                                                         DIAGRAMS
 
+
 ![Diagram](packet-flow.drawio.png) 
 
 
