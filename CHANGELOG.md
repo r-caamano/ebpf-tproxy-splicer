@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Bug Fix
 
+- Added support for source address filtering
+
+## [0.2.5] - 2023-02-21
+
+### Bug Fix
+
 - Added check for maximum port ranges reached for a particular prefix destination 
 
 ## [0.2.4] - 2023-02-16

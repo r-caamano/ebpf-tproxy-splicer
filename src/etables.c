@@ -42,7 +42,7 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define MAX_INDEX_ENTRIES 120 // MAX port ranges per prefix
+#define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536 // PORT MApping table size
 
 static bool add = false;
@@ -52,23 +52,27 @@ static bool flush = false;
 static bool lpt = false;
 static bool hpt = false;
 static bool tpt = false;
-static bool pl = false;
+static bool dl = false;
+static bool sl = false;
 static bool cd = false;
+static bool cs = false;
 static bool prot = false;
 static bool route = false;
 static bool passthru = false;
 static bool intercept = false;
-static struct in_addr cidr;
-static unsigned short plen;
+static struct in_addr dcidr;
+static struct in_addr scidr;
+static unsigned short dplen;
+static unsigned short splen;
 static unsigned short low_port;
 static unsigned short high_port;
 static unsigned short tproxy_port;
 static char *program_name;
 static char *protocol_name;
-static __u8 protocol;
+static unsigned short protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
-const char *argp_program_version = "0.2.5";
+const char *argp_program_version = "0.2.6";
 
 struct ifindex_ip4
 {
@@ -93,8 +97,11 @@ struct tproxy_tuple
 struct tproxy_key
 {
     __u32 dst_ip;
-    __u16 prefix_len;
+    __u32 src_ip;
+    __u16 dprefix_len;
+    __u16 sprefix_len;
     __u16 protocol;
+    __u16 pad;
 };
 
 /*function to add loopback binding for intercept IP prefixes that do not
@@ -104,14 +111,15 @@ void bind_prefix(struct in_addr *address, unsigned short mask){
     char *prefix = inet_ntoa(*address);
     char *cidr_block = malloc(19);
     sprintf(cidr_block, "%s/%u", prefix, mask);
-    printf("binding intercept %s to loopback\n",cidr_block);
+    printf("binding intercept %s to loopback\n", cidr_block);
     pid_t pid;
     char *const parmList[] = {"/usr/bin/ip", "addr", "add", cidr_block, "dev", "lo", "scope", "host", NULL};
     if ((pid = fork()) == -1){
         perror("fork error: can't spawn bind");
-    }else if (pid == 0) {
-       execv("/usr/sbin/ip", parmList);
-       printf("execv error: unknown error binding");
+    }
+    else if (pid == 0){
+        execv("/usr/sbin/ip", parmList);
+        printf("execv error: unknown error binding");
     }
     free(cidr_block);	
 }
@@ -120,20 +128,21 @@ void unbind_prefix(struct in_addr *address, unsigned short mask){
     char *prefix = inet_ntoa(*address);
     char *cidr_block = malloc(19);
     sprintf(cidr_block, "%s/%u", prefix, mask);
-    printf("unbinding intercept %s from loopback\n",cidr_block);
+    printf("unbinding intercept %s from loopback\n", cidr_block);
     pid_t pid;
     char *const parmList[] = {"/usr/sbin/ip", "addr", "delete", cidr_block, "dev", "lo", "scope", "host", NULL};
     if ((pid = fork()) == -1){
         perror("fork error: can't spawn unbind");
-    }else if (pid == 0) {
-       execv("/usr/sbin/ip", parmList);
-       printf("execv error: unknown error unbinding");
+    }
+    else if (pid == 0){
+        execv("/usr/sbin/ip", parmList);
+        printf("execv error: unknown error unbinding");
     }
     free(cidr_block);
 }
 
 /*function to check if prefix is subset of interface subnet*/
-int is_subset(__u32 network, __u32 netmask,__u32 prefix){
+int is_subset(__u32 network, __u32 netmask, __u32 prefix){
     if ((network & netmask) == (prefix & netmask)){
         return 0;
     }else{
@@ -211,7 +220,7 @@ __u16 len2u16(char *len)
 {
     char *endPtr;
     int32_t tmpint = strtol(len, &endPtr, 10);
-    if ((tmpint <= 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
+    if ((tmpint < 0) || (tmpint > 32) || (!(*(endPtr) == '\0')))
     {
         printf("Invalid Prefix Length: %s\n", len);
         exit(1);
@@ -233,10 +242,13 @@ void add_index(__u16 index, struct tproxy_port_mapping *mapping, struct tproxy_t
     }
     if (is_new)
     {
-        if(tuple->index_len < MAX_INDEX_ENTRIES){
+        if(tuple->index_len < MAX_INDEX_ENTRIES)
+        {
             tuple->index_table[tuple->index_len] = index;
             tuple->index_len += 1;
-        }else{
+        }
+        else
+        {
             printf("max port mapping ranges (%d) reached\n", MAX_INDEX_ENTRIES);
             return;
         }
@@ -294,53 +306,58 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     {
         proto = "unknown";
     }
-    char *prefix = nitoa(ntohl(key->dst_ip));
-    char *cidr_block = malloc(19);
-    sprintf(cidr_block, "%s/%d", prefix, key->prefix_len);
+    char *dprefix = nitoa(ntohl(key->dst_ip));
+    char *dcidr_block = malloc(19);
+    sprintf(dcidr_block, "%s/%d", dprefix, key->dprefix_len);
+    char *sprefix = nitoa(ntohl(key->src_ip));
+    char *scidr_block = malloc(19);
+    sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
 
     int x = 0;
     for (; x < tuple->index_len; x++)
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
-            ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));
-        
+            ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));       
         if(intercept && !passthru){
            if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
-                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
+                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
                 *rule_count += 1;
            }
         }else if(passthru && !intercept){
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0){
-                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
-                dpts, "PASSTHRU",cidr_block);
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
+                   dpts, "PASSTHRU", dcidr_block);
                 *rule_count += 1;
             }
         }else{
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, cidr_block,
-                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                
+                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
+                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
             }else{
-                printf("%-11s\t%-3s\tanywhere\t%-32s%-17s\t%s to %s\n","PASSTHRU", proto, cidr_block,
-                dpts, "PASSTHRU",cidr_block);
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
+                   dpts, "PASSTHRU", dcidr_block);
             }
             *rule_count += 1;
         }
     }
     free(dpts);
-    free(cidr_block);
-    free(prefix);
+    free(dcidr_block);
+    free(dprefix);
+    free(scidr_block);
+    free(sprefix);
 }
 
 void usage(char *message)
 {
     fprintf(stderr, "%s : %s\n", program_name, message);
-    fprintf(stderr, "Usage: etables -I -c <ip dest address or prefix> -m <prefix length> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol id>\n");
-    fprintf(stderr, "       etables -D -c <ip dest address or prefix> -m <prefix length> -l <low_port> -p <protocol id>\n");
-    fprintf(stderr, "       etables -L -c <ip dest address or prefix> -m <prefix length> -p <protocol id>\n");
-    fprintf(stderr, "       etables -L -c <ip dest address or prefix> -m <prefix length>\n");
+    fprintf(stderr, "Usage: etables -I -c <ip dprefix> -m <dest cidr len> -l <low_port> -h <high_port> -t <tproxy_port> -p <proto id>\n");
+    fprintf(stderr, "Usage: etables -I -c <dest cidr> -m <dest cidr len> -o <origin cidr> -n <origin cidr len> -l <low_port> -h <high_port> -t <tproxy_port> -p <proto>\n");
+    fprintf(stderr, "       etables -D -c <dest cidr> -m <dest cidr len> -l <low_port> -p <protocol id>\n");
+    fprintf(stderr, "       etables -L -c <dest cidr> -m <dest cidr len> -p <protocol id>\n");
+    fprintf(stderr, "       etables -L -c <dest cidr> -m <dest cidr len> -p <protocol id>\n");
+    fprintf(stderr, "       etables -L <dest cidr> -m <dest cidr len> -o <origin cidr> -n <origin cidr len>\n");
     fprintf(stderr, "       etables -F\n");
     fprintf(stderr, "       etables -L\n");
     fprintf(stderr, "       etables -L -i\n");
@@ -350,7 +367,8 @@ void usage(char *message)
     exit(1);
 }
 
-bool interface_map(){
+bool interface_map()
+{
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr if_map;
     /*path to pinned ifindex_ip_map*/
@@ -400,11 +418,14 @@ bool interface_map(){
                 ifip = ipaddr->sin_addr.s_addr;
                 struct sockaddr_in *network_mask = (struct sockaddr_in *)address->ifa_netmask;
                 __u32 netmask = ntohl(network_mask->sin_addr.s_addr);
-                ipcheck = is_subset(ntohl(ifip) ,netmask,ntohl(cidr.s_addr));
-                if(!ipcheck){
+                ipcheck = is_subset(ntohl(ifip), netmask, ntohl(dcidr.s_addr));
+                if(!ipcheck)
+                {
                     create_route = false;
                 }
-            }else{
+            }
+            else
+            {
                ifip = 0x0100007f;
             }
             struct ifindex_ip4 ifip4 = {
@@ -415,7 +436,8 @@ bool interface_map(){
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-            if (ret){
+            if (ret)
+            {
                 printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
                 close(if_fd);
                 exit(1);
@@ -433,7 +455,7 @@ void map_insert()
 {
     bool route_insert = interface_map();
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule; /* struct to hold an existing entry if it exists */
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
@@ -493,8 +515,9 @@ void map_insert()
             close(fd);
             exit(1);
         }
-	    if(route && route_insert){
-           bind_prefix(&cidr, plen);
+	    if(route && route_insert)
+        {
+           bind_prefix(&dcidr, dplen);
         }
     }
     else
@@ -522,8 +545,8 @@ void map_insert()
 void map_delete_key(struct tproxy_key key)
 {
     char *prefix = nitoa(ntohl(key.dst_ip));
-    inet_aton(prefix, &cidr);
-    plen = key.prefix_len;
+    inet_aton(prefix, &dcidr);
+    dplen = key.dprefix_len;
     free(prefix);
     bool route_delete = interface_map();
     union bpf_attr map;
@@ -546,8 +569,9 @@ void map_delete_key(struct tproxy_key key)
     }
     else
     {
-        if(route && route_delete){
-            unbind_prefix(&cidr,plen);
+        if(route && route_delete)
+        {
+            unbind_prefix(&dcidr, dplen);
         }
     }
     close(fd);
@@ -557,7 +581,7 @@ void map_delete()
 {
     bool route_delete = interface_map();
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
@@ -622,8 +646,9 @@ void map_delete()
             else
             {
                 printf("Last Element: Hash Entry Deleted\n");
-                if(route && route_delete){
-		            unbind_prefix(&cidr,plen);
+                if(route && route_delete)
+                {
+		            unbind_prefix(&dcidr, dplen);
                 }
                 exit(0);
             }
@@ -681,7 +706,7 @@ void map_flush()
 void map_list()
 {
     union bpf_attr map;
-    struct tproxy_key key = {cidr.s_addr, plen, protocol};
+    struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
@@ -698,8 +723,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
-    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -717,7 +742,7 @@ void map_list()
         for (; x < 2; x++)
         {
             rule_count = 0;
-            struct tproxy_key vkey = {cidr.s_addr, plen, vprot[x]};
+            struct tproxy_key vkey = {dcidr.s_addr, scidr.s_addr, dplen, splen, vprot[x], 0};
             map.key = (uint64_t)&vkey;
             lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
             if (!lookup)
@@ -753,16 +778,16 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-8s\t%-32s%-17s\t\t\t\n","target","proto","source","destination","mapping:");
-    printf("--------\t-----\t--------\t------------------\t\t-------------------------------------------------------\n");
-    int rule_count=0;
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+    int rule_count = 0;
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
         // printf("ret=%d\n",ret);
         if (ret == -1)
         {
-            printf("Rule Count: %d\n",rule_count);
+            printf("Rule Count: %d\n", rule_count);
             break;
         }
         map.key = map.next_key;
@@ -787,14 +812,16 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"cidr-block", 'c', "", 0, "Set ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
-    {"prefix-len", 'm', "", 0, "Set prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
+    {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"low-port", 'l', "", 0, "Set low-port value (1-65535)> <mandatory insert/delete>", 0},
     {"high-port", 'h', "", 0, "Set high-port value (1-65535)> <mandatory for insert>", 0},
     {"tproxy-port", 't', "", 0, "Set high-port value (0-65535)> <mandatory for insert>", 0},
     {"protocol", 'p', "", 0, "Set protocol (tcp or udp) <mandatory insert/delete>", 0},
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
-     {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
+    {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
     {"passthrough", 'f', NULL, 0, "list passthrough rules <optional list>", 0},
     {0}};
 
@@ -816,9 +843,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         list = true;
         break;
     case 'c':
-        if (!inet_aton(arg, &cidr))
+        if (!inet_aton(arg, &dcidr))
         {
-            fprintf(stderr, "Invalid IP Address for arg -c, --cidr-block: %s\n", arg);
+            fprintf(stderr, "Invalid IP Address for arg -c, --dcidr-block: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
@@ -839,8 +866,21 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         lpt = true;
         break;
     case 'm':
-        plen = len2u16(arg);
-        pl = true;
+        dplen = len2u16(arg);
+        dl = true;
+        break;
+    case 'n':
+        splen = len2u16(arg);
+        sl = true;
+        break;
+    case 'o':
+        if (!inet_aton(arg, &scidr))
+        {
+            fprintf(stderr, "Invalid IP Address for arg -o, --ocidr-block: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        cs = true;
         break;
     case 'p':
         if ((strcmp("tcp", arg) == 0) || (strcmp("TCP", arg) == 0))
@@ -893,7 +933,7 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
@@ -915,6 +955,18 @@ int main(int argc, char **argv)
         }
         else
         {
+            if (!cs)
+            {
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }
+            else
+            {
+                if (!sl)
+                {
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_insert();
         }
     }
@@ -924,7 +976,7 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
@@ -938,6 +990,18 @@ int main(int argc, char **argv)
         }
         else
         {
+            if (!cs)
+            {
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }
+            else
+            {
+                if (!sl)
+                {
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_delete();
         }
     }
@@ -947,7 +1011,7 @@ int main(int argc, char **argv)
     }
     else if (list)
     {
-        if (!cd && !pl)
+        if (!cd && !dl)
         {
             map_list_all();
         }
@@ -955,12 +1019,24 @@ int main(int argc, char **argv)
         {
             usage("Missing argument -c, --cider-block");
         }
-        else if (!pl)
+        else if (!dl)
         {
             usage("Missing argument -m, --prefix-len");
         }
         else
         {
+             if (!cs)
+            {
+                inet_aton("0.0.0.0", &scidr);
+                splen = 0;
+            }
+            else
+            {
+                if (!sl)
+                {
+                    usage("Missing argument -n, --sprefix-len");
+                }
+            }
             map_list();
         }
     }
