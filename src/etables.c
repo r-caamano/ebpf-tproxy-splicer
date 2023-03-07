@@ -749,6 +749,10 @@ void map_list()
             {
                 print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
                 printf("Rule Count: %d\n", rule_count);
+                if(x == 0){
+                    printf("\n%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
+                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+                }
             }
         }
     }
