@@ -24,7 +24,7 @@ jobs:
       - name: Install EBPF Packages
         run: |
           sudo apt-get update -qq
-          sudo apt --only-upgrade install grub-efi-amd64-signed -y
+          sudo apt-get --only-upgrade install grub-efi-amd64-bin -y
           sudo apt-get upgrade -y
           sudo apt-get install -y jq gcc clang libc6-dev-i386 libbpfcc-dev libbpf-dev 
 
