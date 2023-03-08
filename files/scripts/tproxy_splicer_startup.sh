@@ -112,28 +112,35 @@ function update_map_user()
 {
     # if user file exists
     if [ -f $ebpf_user_file ]; then
-        RULES_NUM=`yq '.rules | keys | length' $ebpf_user_file`
-        for ((i = 0 ; i < $RULES_NUM ; i++)); do 
-            export ikey=$i
-            PORTS=`yq '.rules[env(ikey)] | .ports' $ebpf_user_file`
-            PROTOCOLS=`yq '.rules[env(ikey)] | .protocols' $ebpf_user_file`
-            PROTO_LEN=`yq '.rules[env(ikey)] | .protocols | length' $ebpf_user_file`
-            for ((j = 0 ; j < $PROTO_LEN ; j++)); do 
-                export jkey=$j
-                if [[ -n $PORTS ]] && [[ -n $PROTOCOLS ]]; then
-                    LP=`yq '.rules[env(ikey)] | .ports[0]' $ebpf_user_file`
-                    HP=`yq '.rules[env(ikey)] | .ports[1]' $ebpf_user_file`
-                    P=`yq '.rules[env(ikey)] | .protocols[env(jkey)]' $ebpf_user_file`
-                    if [ $DELETE_USER_INGRESS_RULES == true ]; then
-                        $etables -D -c $LANIP -m 32 -l $LP -h $HP -t 0 -p $P
-                    else 
-                        $etables -I -c $LANIP -m 32 -l $LP -h $HP -t 0 -p $P
+        if [[ -n  `yq '.rules' $ebpf_user_file` ]]; then
+            RULES_NUM=`yq '.rules | keys | length' $ebpf_user_file`
+            for ((i = 0 ; i < $RULES_NUM ; i++)); do 
+                export ikey=$i
+                PORTS=`yq '.rules[env(ikey)] | .ports' $ebpf_user_file`
+                PROTOCOLS=`yq '.rules[env(ikey)] | .protocols' $ebpf_user_file`
+                PROTO_LEN=`yq '.rules[env(ikey)] | .protocols | length' $ebpf_user_file`
+                SOURCE_PREFIX=`yq '.rules[env(ikey)] | .source_prefix' $ebpf_user_file`
+                for ((j = 0 ; j < $PROTO_LEN ; j++)); do 
+                    export jkey=$j
+                    if [[ -n $PORTS ]] && [[ -n $PROTOCOLS ]] && [[ -n $SOURCE_PREFIX ]]; then
+                        LP=`yq '.rules[env(ikey)] | .ports[0]' $ebpf_user_file`
+                        HP=`yq '.rules[env(ikey)] | .ports[1]' $ebpf_user_file`
+                        P=`yq '.rules[env(ikey)] | .protocols[env(jkey)]' $ebpf_user_file`
+                        SP=`yq '.rules[env(ikey)] | .source_prefix[0]' $ebpf_user_file`
+                        SPL=`yq '.rules[env(ikey)] | .source_prefix[1]' $ebpf_user_file`
+                        if [ $DELETE_USER_INGRESS_RULES == true ]; then
+                            $etables -D -c $LANIP -m 32 -o $SP -n $SPL -l $LP -h $HP -t 0 -p $P
+                        else 
+                            $etables -I -c $LANIP -m 32 -o $SP -n $SPL -l $LP -h $HP -t 0 -p $P
+                        fi
                     fi
-                fi
+                done
             done
-        done
-        unset ikey
-        unset jkey
+            unset ikey
+            unset jkey
+        else
+           echo "INFO: No rules found in $ebpf_user_file, nothing to do" 
+        fi
     else
         echo "INFO: File $ebpf_user_file not found, nothing to do"
     fi
@@ -183,6 +190,7 @@ etables="$EBPF_HOME/objects/etables"
 tproxy_splicer_path="$EBPF_HOME/objects/tproxy_splicer.o"
 zt_router_service_path="$EBPF_HOME/services/ziti-router.service"
 ebpf_user_file="$EBPF_HOME/user_ingress_rules.yml" 
+ebpf_map_home="/sys/fs/bpf/tc/globals"
 # Is router config file present?
 if [ -f "$router_config_file" ]; then
     # Look up tunnel edge binding
@@ -226,7 +234,10 @@ if [ -f "$router_config_file" ]; then
                     if [ "$LANIF" ]; then
                         yq -i '(.listeners[] | select(.binding == "tunnel").options | .mode) = "tproxy"' $router_config_file 
                         /usr/sbin/tc qdisc del dev $LANIF clsact
-                        /usr/bin/rm /sys/fs/bpf/tc/globals/zt_tproxy_map
+                        /usr/bin/rm $ebpf_map_home/zt_tproxy_map
+                        /usr/bin/rm $ebpf_map_home/ifindex_ip_map
+                        /usr/bin/rm $ebpf_map_home/matched_map
+                        /usr/bin/rm $ebpf_map_home/prog_map
                         # delete ufw rule associated with ebpf
                         ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort -r)
                         for index in $ufw_rule_num
