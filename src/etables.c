@@ -77,6 +77,7 @@ static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
 static char *echo_interface;
 const char *argp_program_version = "0.2.6";
+int get_key_count();
 
 struct ifindex_ip4
 {
@@ -506,7 +507,11 @@ bool interface_map()
 }
 
 void map_insert()
-{
+{   
+    if(get_key_count() == BPF_MAX_ENTRIES){
+       printf("INSERT FAILURE -- MAX PREFIX TUPLES REACHED\n");
+       exit(1);
+    }
     bool route_insert = interface_map();
     union bpf_attr map;
     struct tproxy_key key = {dcidr.s_addr, scidr.s_addr, dplen, splen, protocol, 0};
@@ -889,7 +894,7 @@ void map_list_all()
         if (ret == -1)
         {
             printf("Rule Count: %d\n", rule_count);
-            printf("key_count: %d\n", get_key_count());
+            printf("prefix_tuple_count: %d / %d\n", get_key_count(), BPF_MAX_ENTRIES);
             break;
         }
         map.key = map.next_key;
