@@ -29,7 +29,8 @@
 #include <iproute2/bpf_elf.h>
 #include <stdbool.h>
 #include <linux/tcp.h>
-#include <net/if.h>
+#include <linux/icmp.h>
+#include <linux/if.h>
 #include <stdio.h>
 
 #define BPF_MAP_ID_TPROXY  1
@@ -94,7 +95,7 @@ struct match_tracker {
 /*value to ifindex_ip_map*/
 struct ifindex_ip4 {
     __u32 ipaddr;
-    char ifname[IF_NAMESIZE];
+    char ifname[IFNAMSIZ];
 };
 
 /*bpf program map*/
@@ -231,7 +232,7 @@ static inline void clear_match_tracker(__u32 key){
 * from the combined IP SA|DA and the TCP/UDP SP|DP. 
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
-    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp){
+    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
     int ret;
@@ -323,7 +324,12 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         /* check if ip protocol is TCP */
         if (proto == IPPROTO_TCP) {
             *tcp = true;
-        }/* check if ip protocol is not UDP and not TCP to return NULL */
+        }
+        if(proto == IPPROTO_ICMP){
+            *icmp = true;
+            return NULL;
+        }
+        /* check if ip protocol is not UDP or TCP. Return NULL if true */
         if ((proto != IPPROTO_UDP) && (proto != IPPROTO_TCP)) {
             return NULL;
         }
@@ -369,6 +375,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool udp=false;
     bool tcp=false;
     bool arp=false;
+    bool icmp=false;
     int ret;
 
     /* find ethernet header from skb->data pointer */
@@ -379,7 +386,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 	}
 
     /* check if incomming packet is a UDP or TCP tuple */
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
+    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp);
 
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
@@ -387,13 +394,30 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
         if(skb->ingress_ifindex == 1){
-        return TC_ACT_OK;
+            return TC_ACT_OK;
         }
         else if(arp){
             return TC_ACT_OK;
-            }else{
-            return TC_ACT_SHOT;
+	    }
+        else if(icmp){
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
             }
+            bpf_printk("protocol = %d\n", iph->protocol);
+            struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            else if((icmph->type == 0) && (icmph->code == 0)){
+                return TC_ACT_OK;
+            }
+            else{
+                return TC_ACT_SHOT;
+            }
+        }else{
+            return TC_ACT_SHOT;
+        }
     }
 
     /* determine length of tupple */
@@ -762,7 +786,6 @@ int bpf_sk_splice4(struct __sk_buff *skb){
     return TC_ACT_SHOT;
 }
 
-//If origin/dest/protocol keys found search for port match
 SEC("3/5")
 int bpf_sk_splice5(struct __sk_buff *skb){
     struct bpf_sock *sk;
