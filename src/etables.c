@@ -42,6 +42,7 @@
 #include <argp.h>
 #include <linux/socket.h>
 
+#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
 #define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE 65536 // PORT MApping table size
 
@@ -60,6 +61,8 @@ static bool prot = false;
 static bool route = false;
 static bool passthru = false;
 static bool intercept = false;
+static bool echo = false;
+static bool disable = false;
 static struct in_addr dcidr;
 static struct in_addr scidr;
 static unsigned short dplen;
@@ -72,12 +75,17 @@ static char *protocol_name;
 static unsigned short protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
+static char *echo_interface;
 const char *argp_program_version = "0.2.6";
 
 struct ifindex_ip4
 {
     __u32 ipaddr;
     char ifname[IF_NAMESIZE];
+};
+
+struct icmp_ip4 {
+    bool echo;
 };
 
 struct tproxy_port_mapping
@@ -367,6 +375,45 @@ void usage(char *message)
     exit(1);
 }
 
+bool set_echo(int *idx){
+    /* create bpf_attr to store ifindex_ip_map */
+    union bpf_attr echo_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *icmp_map_path = "/sys/fs/bpf/tc/globals/icmp_map";
+    /* open BPF ifindex_ip_map */
+    memset(&echo_map, 0, sizeof(echo_map));
+    /* set path name with location of map in filesystem */
+    echo_map.pathname = (uint64_t)icmp_map_path;
+    echo_map.bpf_fd = 0;
+    echo_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &echo_map, sizeof(echo_map));
+    if (icmp_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    echo_map.map_fd = icmp_fd;
+    struct icmp_ip4 if_icmp = {0};
+    if(!disable){
+        if_icmp.echo = true;
+    }
+    else{
+        if_icmp.echo = false;
+    }     
+    echo_map.key = (uint64_t)idx;
+    echo_map.flags = BPF_ANY;
+    echo_map.value = (uint64_t)&if_icmp;
+    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &echo_map, sizeof(echo_map));
+    if (ret)
+    {
+        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        close(icmp_fd);
+        exit(1);
+    }
+    return true;
+}
+
 bool interface_map()
 {
     /* create bpf_attr to store ifindex_ip_map */
@@ -435,6 +482,13 @@ bool interface_map()
             if_map.key = (uint64_t)&idx;
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
+            if(echo){
+                if(!strcmp(echo_interface, address->ifa_name)){
+                    if(set_echo(&idx)){
+                        printf("successfully changed icmp echo for %s to %d\n", address->ifa_name, !disable);
+                    }
+                }
+            }
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
             if (ret)
             {
@@ -760,6 +814,50 @@ void map_list()
     close(fd);
 }
 
+int get_key_count()
+{
+    union bpf_attr map;
+    struct tproxy_key *key = NULL;
+    struct tproxy_key current_key;
+    struct tproxy_tuple orule;
+    // Open BPF zt_tproxy_map map
+    memset(&map, 0, sizeof(map));
+    map.pathname = (uint64_t)path;
+    map.bpf_fd = 0;
+    map.file_flags = 0;
+    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
+    if (fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    map.map_fd = fd;
+    map.key = (uint64_t)key;
+    map.value = (uint64_t)&orule;
+    int lookup = 0;
+    int ret = 0;
+    int key_count = 0;
+    while (true)
+    {
+        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
+        // printf("ret=%d\n",ret);
+        if (ret == -1)
+        {
+            return key_count;
+            break;
+        }
+        map.key = map.next_key;
+        current_key = *(struct tproxy_key *)map.key;
+        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
+        if (!lookup)
+        {
+            key_count++;
+        }
+        map.key = (uint64_t)&current_key;
+    }
+    close(fd);
+}
+
 void map_list_all()
 {
     union bpf_attr map;
@@ -788,10 +886,10 @@ void map_list_all()
     while (true)
     {
         ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
-        // printf("ret=%d\n",ret);
         if (ret == -1)
         {
             printf("Rule Count: %d\n", rule_count);
+            printf("key_count: %d\n", get_key_count());
             break;
         }
         map.key = map.next_key;
@@ -817,6 +915,8 @@ static struct argp_option options[] = {
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
+    {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
+    {"disable", 'd', NULL, 0, "disabble associated icmp echo operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
@@ -854,6 +954,19 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         cd = true;
+        break;
+    case 'e':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "Interface name required as arg to -e, --icmp-echo: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        echo = true;
+        echo_interface = arg;
+        break;
+    case 'd':
+        disable = true;
         break;
     case 'f':
         passthru = true;
@@ -922,6 +1035,15 @@ struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
+
+    if(disable && !echo){
+        usage("Missing argument -e, --icmp-echo");
+    }
+
+    if(echo){
+        interface_map();
+        exit(0);
+    }
 
     if((intercept || passthru) && !list){
         usage("Missing argument -L, --list");

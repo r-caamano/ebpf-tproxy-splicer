@@ -37,7 +37,7 @@
 #define BPF_MAP_ID_IFINDEX_IP  2
 #define BPF_MAP_ID_PROG_MAP 3
 #define BPF_MAP_ID_MATCHED_KEY 4
-#define BPF_MAP_ID_MATCHED_COUNT 5
+#define BPF_MAP_ID_ICMP_MAP 5
 #define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
@@ -98,6 +98,11 @@ struct ifindex_ip4 {
     char ifname[IFNAMSIZ];
 };
 
+/*value to icmp_map*/
+struct icmp_ip4 {
+    bool echo;
+};
+
 /*bpf program map*/
 struct bpf_elf_map SEC("maps") prog_map = {
 	.type		= BPF_MAP_TYPE_PROG_ARRAY,
@@ -136,6 +141,16 @@ struct {
     __uint(max_entries, 50);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ifindex_ip_map SEC(".maps");
+
+//map to keep status of icmp rules
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(id, BPF_MAP_ID_ICMP_MAP);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(struct icmp_ip4));
+    __uint(max_entries, 50);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} icmp_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
@@ -186,6 +201,13 @@ static inline struct ifindex_ip4 *get_local_ip4(__u32 key){
     ifip4 = bpf_map_lookup_elem(&ifindex_ip_map, &key);
 
 	return ifip4;
+}
+
+static inline struct icmp_ip4 *get_icmp_ip4(__u32 key){
+    struct icmp_ip4 *if_icmp;
+    if_icmp = bpf_map_lookup_elem(&icmp_map, &key);
+
+	return if_icmp;
 }
 
 /*function to update the ifindex_ip_map locally from ebpf possible
@@ -391,6 +413,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
 
+    /*look up attached interface inbound icmp echo status*/
+    struct icmp_ip4 *local_icmp = get_icmp_ip4(skb->ingress_ifindex);
+
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
         if(skb->ingress_ifindex == 1){
@@ -404,10 +429,17 @@ int bpf_sk_splice(struct __sk_buff *skb){
             if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
             }
-            bpf_printk("protocol = %d\n", iph->protocol);
             struct icmphdr *icmph = (struct icmphdr *)((unsigned long)iph + sizeof(*iph));
             if ((unsigned long)(icmph + 1) > (unsigned long)skb->data_end){
                 return TC_ACT_SHOT;
+            }
+            else if((icmph->type == 8) && (icmph->code == 0)){
+                if(local_icmp && local_icmp->echo){
+                    return TC_ACT_OK;
+                }
+                else{
+                    return TC_ACT_SHOT;
+                }
             }
             else if((icmph->type == 0) && (icmph->code == 0)){
                 return TC_ACT_OK;

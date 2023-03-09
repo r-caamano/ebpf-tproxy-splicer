@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
-## [0.2.5] - 2023-02-21
-
-### Bug Fix
+## [0.2.6] - 2023-02-21
 
 - Added support for source address filtering
+- Added rule to permananetly allow icmp echo replies from any source
+- Added command line switch to etables to allow icmp echos into router
 
 ## [0.2.5] - 2023-02-21
 
