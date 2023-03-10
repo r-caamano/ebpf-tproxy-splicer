@@ -159,9 +159,9 @@ Example: List rules in map for a given prefix and protocol
   
 sudo map_update -L -c 192.168.100.100 -m 32 -p udp
   
-target     proto    source           destination              mapping:
+target     proto    origin           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
 ``` 
 
 Example: List rules in map for a given prefix
@@ -170,10 +170,10 @@ Example: List rules in map for a given prefix
 
 sudo map_update -L -c 192.168.100.100 -m 32
 
-target     proto    source           destination              mapping:
+target     proto    origin           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-PASSTHRU   tcp      anywhere         192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
 ```
 
 ## Additional Distro testing
