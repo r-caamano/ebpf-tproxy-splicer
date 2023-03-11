@@ -38,7 +38,8 @@
 #define BPF_MAP_ID_PROG_MAP 3
 #define BPF_MAP_ID_MATCHED_KEY 4
 #define BPF_MAP_ID_ICMP_MAP 5
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
+#define BPF_MAP_ID_TCP_MAP 6
+#define BPF_MAX_ENTRIES    1 //MAX # PREFIXES
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
@@ -82,6 +83,24 @@ struct tproxy_key {
     __u16 sprefix_len;
     __u16 protocol;
     __u16 pad;
+};
+/*Key to tcp_map*/
+struct tcp_key {
+    __u32 daddr;
+    __u32 saddr;
+    __u16 sport;
+    __u16 dport;
+};
+
+/*Value to tcp_map*/
+struct tcp_state {
+    unsigned long long tstamp;
+    int syn;
+    int fin;
+    int ack;
+    int rst;
+    int est;
+    int pad;
 };
 
 /*Value to matched_map*/
@@ -181,6 +200,15 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } zt_tproxy_map SEC(".maps");
 
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(id, BPF_MAP_ID_TCP_MAP);
+     __uint(key_size, sizeof(struct tcp_key));
+     __uint(value_size,sizeof(struct tcp_state));
+     __uint(max_entries, 200);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tcp_map SEC(".maps");
+
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
  */
@@ -188,6 +216,16 @@ static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
     struct tproxy_tuple *tu;
     tu = bpf_map_lookup_elem(&zt_tproxy_map, &key);
 	return tu;
+}
+
+static inline void del_tcp(struct tcp_key key){
+     bpf_map_delete_elem(&tcp_map, &key);
+}
+
+static inline struct tcp_state *get_tcp(struct tcp_key key){
+    struct tcp_state *ts;
+    ts = bpf_map_lookup_elem(&tcp_map, &key);
+	return ts;
 }
 
 /* Function used by ebpf program to access ifindex_ip_map
@@ -220,7 +258,7 @@ future use*/
     }
 }*/
 
-/*function to update the matched_key_map locally from ebpf*/
+/*function to update the matched_map locally from ebpf*/
 static inline void insert_matched_key(struct match_tracker matched_keys, unsigned int key){
      bpf_map_update_elem(&matched_map, &key, &matched_keys,0);
 }
@@ -399,6 +437,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool arp=false;
     bool icmp=false;
     int ret;
+    struct tcp_key tcp_state_key;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -486,7 +525,54 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
             }
             bpf_sk_release(sk);
-        }
+       }else{
+            struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+            if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            struct tcphdr *tcph = (struct tcphdr *)((unsigned long)iph + sizeof(*iph));
+            if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
+                return TC_ACT_SHOT;
+            }
+            tcp_state_key.daddr = tuple->ipv4.saddr;
+            tcp_state_key.saddr = tuple->ipv4.daddr;
+            tcp_state_key.sport = tuple->ipv4.dport;
+            tcp_state_key.dport = tuple->ipv4.sport;
+            bpf_printk("src=%x : sport=%x : dst=%x\n",tcp_state_key.saddr, tcp_state_key.sport, tcp_state_key.daddr);
+            struct tcp_state *tstate = get_tcp(tcp_state_key);
+            if(tstate && skb->tstamp < (tstate->tstamp + (1500000000000))){    
+                bpf_printk("here\n");      
+                if(tcph->syn  && tcph->ack){
+                    tstate->ack =1;
+                    bpf_printk("got syn-ack %x : %lld\n" ,tuple->ipv4.daddr, skb->tstamp);
+                    return TC_ACT_OK;
+                }
+                else if(tcph->fin){
+                    if(tstate->est){
+                        tstate->tstamp = skb->tstamp;
+                        tstate->fin = 1;
+                        bpf_printk("Received fin from Server %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                        return TC_ACT_OK;
+                    }
+                }
+                else if(tcph->rst){
+                    if(tstate->est){
+                        del_tcp(tcp_state_key);
+                        bpf_printk("Received rst from Server %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                        return TC_ACT_OK;
+                    }
+                }
+                else if(tcph->ack){
+                    if(tstate->est){
+                        tstate->tstamp = skb->tstamp;
+                        return TC_ACT_OK;
+                    }
+                }
+            }
+            else{
+                del_tcp(tcp_state_key);
+            }
+       }
     }else{
     /* if udp based tuple implement statefull inspection to see if they were
      * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
