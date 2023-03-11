@@ -194,24 +194,25 @@ int bpf_sk_splice(struct __sk_buff *skb){
         tcp_state_key.saddr = tuple->ipv4.saddr;
         tcp_state_key.sport = tuple->ipv4.sport;
         tcp_state_key.dport = tuple->ipv4.dport;
+	    unsigned long long tstamp = bpf_ktime_get_ns();
         struct tcp_state *tstate;
         if(tcph->syn){
-            struct tcp_state tstate = {
-                    skb->tstamp,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
-            };
-            insert_tcp(tstate, tcp_state_key);
-            bpf_printk("sent syn to %x : %lld\n" ,tuple->ipv4.daddr, skb->tstamp);
+            struct tcp_state ts = {
+		    tstamp,
+		    1,
+	        0,
+		    0,
+		    0,
+		    0,
+		    0
+	    };
+            insert_tcp(ts, tcp_state_key);
+            bpf_printk("sent syn to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
         }
         else if(tcph->fin){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
-                tstate->tstamp = skb->tstamp;
+                tstate->tstamp = tstamp;
                 tstate->fin = 1;
                 bpf_printk("sent fin to %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
             }
@@ -227,20 +228,20 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 if(tstate->ack && tstate->syn){
-                    tstate->tstamp = skb->tstamp;
+                    tstate->tstamp = tstamp;
                     tstate->syn = 0;
                     tstate->est = 1;
                 }
                 if(tstate->fin == 1){
                     del_tcp(tcp_state_key);
-                    bpf_printk("sent final ack to %x : %lld\n" ,tuple->ipv4.daddr, skb->tstamp);
+                    bpf_printk("sent final ack to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
                     tstate = get_tcp(tcp_state_key);
                     if(!tstate){
                         bpf_printk("removed tcp state\n");
                     }
                 }
                 else{
-                    tstate->tstamp = skb->tstamp;
+                    tstate->tstamp = tstamp;
                 }
             }
         }

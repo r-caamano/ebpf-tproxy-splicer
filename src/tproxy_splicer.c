@@ -501,6 +501,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
        return TC_ACT_OK;
     }
 
+    if(bpf_ntohs(tuple->ipv4.sport) == 53){
+       return TC_ACT_OK;
+    }
 
 
     /* allow ssh to local system */
@@ -538,18 +541,18 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tcp_state_key.saddr = tuple->ipv4.daddr;
             tcp_state_key.sport = tuple->ipv4.dport;
             tcp_state_key.dport = tuple->ipv4.sport;
-            bpf_printk("src=%x : sport=%x : dst=%x\n",tcp_state_key.saddr, tcp_state_key.sport, tcp_state_key.daddr);
+	        unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate = get_tcp(tcp_state_key);
-            if(tstate && skb->tstamp < (tstate->tstamp + (1500000000000))){    
-                bpf_printk("here\n");      
+            if(tstate && (tstamp < (tstate->tstamp + 1500000000000))){    
                 if(tcph->syn  && tcph->ack){
                     tstate->ack =1;
-                    bpf_printk("got syn-ack %x : %lld\n" ,tuple->ipv4.daddr, skb->tstamp);
+                    tstate->tstamp = tstamp;
+                    bpf_printk("got syn-ack %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
                     return TC_ACT_OK;
                 }
                 else if(tcph->fin){
                     if(tstate->est){
-                        tstate->tstamp = skb->tstamp;
+                        tstate->tstamp = tstamp;
                         tstate->fin = 1;
                         bpf_printk("Received fin from Server %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
                         return TC_ACT_OK;
@@ -564,7 +567,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 else if(tcph->ack){
                     if(tstate->est){
-                        tstate->tstamp = skb->tstamp;
+                        tstate->tstamp = tstamp;
                         return TC_ACT_OK;
                     }
                 }
