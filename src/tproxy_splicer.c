@@ -621,25 +621,26 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
            }
            bpf_sk_release(sk);
-        }
-        udp_state_key.daddr = tuple->ipv4.saddr;
-        udp_state_key.saddr = tuple->ipv4.daddr;
-        udp_state_key.sport = tuple->ipv4.dport;
-        udp_state_key.dport = tuple->ipv4.sport;
-	    unsigned long long tstamp = bpf_ktime_get_ns();
-        struct udp_state *ustate = get_udp(udp_state_key);
-        if(ustate){
-           if(ustate->tstamp > (tstamp + 30000000000)){
-               bpf_printk("udp inbound matched expired state\n");
-               del_udp(udp_state_key);
-               ustate = get_udp(udp_state_key);
-               if(!ustate){
-                  bpf_printk("expired udp state removed\n");
-               }
-           }
-           else{
-               return TC_ACT_OK;
-           }
+        }else{
+            udp_state_key.daddr = tuple->ipv4.saddr;
+            udp_state_key.saddr = tuple->ipv4.daddr;
+            udp_state_key.sport = tuple->ipv4.dport;
+            udp_state_key.dport = tuple->ipv4.sport;
+            unsigned long long tstamp = bpf_ktime_get_ns();
+            struct udp_state *ustate = get_udp(udp_state_key);
+            if(ustate){
+                if(ustate->tstamp > (tstamp + 30000000000)){
+                    bpf_printk("udp inbound matched expired state\n");
+                    del_udp(udp_state_key);
+                    ustate = get_udp(udp_state_key);
+                    if(!ustate){
+                        bpf_printk("expired udp state removed\n");
+                    }
+                }
+                else{
+                    return TC_ACT_OK;
+                }
+            }
         }
     }
     //init the match_count_map
