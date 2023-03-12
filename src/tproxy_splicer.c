@@ -39,7 +39,8 @@
 #define BPF_MAP_ID_MATCHED_KEY 4
 #define BPF_MAP_ID_ICMP_MAP 5
 #define BPF_MAP_ID_TCP_MAP 6
-#define BPF_MAX_ENTRIES    1 //MAX # PREFIXES
+#define BPF_MAP_ID_UDP_MAP 7
+#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
@@ -85,7 +86,7 @@ struct tproxy_key {
     __u16 pad;
 };
 /*Key to tcp_map*/
-struct tcp_key {
+struct tuple_key {
     __u32 daddr;
     __u32 saddr;
     __u16 sport;
@@ -101,6 +102,11 @@ struct tcp_state {
     int rst;
     int est;
     int pad;
+};
+
+/*Value to udp_map*/
+struct udp_state {
+    unsigned long long tstamp;
 };
 
 /*Value to matched_map*/
@@ -203,11 +209,20 @@ struct {
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(id, BPF_MAP_ID_TCP_MAP);
-     __uint(key_size, sizeof(struct tcp_key));
+     __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct tcp_state));
      __uint(max_entries, 200);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
+
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(id, BPF_MAP_ID_UDP_MAP);
+     __uint(key_size, sizeof(struct tuple_key));
+     __uint(value_size,sizeof(struct udp_state));
+     __uint(max_entries, 200);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} udp_map SEC(".maps");
 
 /* function for ebpf program to access zt_tproxy_map entries
  * based on {prefix,mask,protocol} i.e. {192.168.1.0,24,IPPROTO_TCP}
@@ -218,14 +233,24 @@ static inline struct tproxy_tuple *get_tproxy(struct tproxy_key key){
 	return tu;
 }
 
-static inline void del_tcp(struct tcp_key key){
+static inline void del_tcp(struct tuple_key key){
      bpf_map_delete_elem(&tcp_map, &key);
 }
 
-static inline struct tcp_state *get_tcp(struct tcp_key key){
+static inline struct tcp_state *get_tcp(struct tuple_key key){
     struct tcp_state *ts;
     ts = bpf_map_lookup_elem(&tcp_map, &key);
 	return ts;
+}
+
+static inline void del_udp(struct tuple_key key){
+     bpf_map_delete_elem(&udp_map, &key);
+}
+
+static inline struct udp_state *get_udp(struct tuple_key key){
+    struct udp_state *us;
+    us = bpf_map_lookup_elem(&udp_map, &key);
+	return us;
 }
 
 /* Function used by ebpf program to access ifindex_ip_map
@@ -437,7 +462,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool arp=false;
     bool icmp=false;
     int ret;
-    struct tcp_key tcp_state_key;
+    struct tuple_key tcp_state_key;
+    struct tuple_key udp_state_key;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -501,9 +527,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
        return TC_ACT_OK;
     }
 
-    if(bpf_ntohs(tuple->ipv4.sport) == 53){
+    /*if(bpf_ntohs(tuple->ipv4.sport) == 53){
        return TC_ACT_OK;
-    }
+    }*/
 
 
     /* allow ssh to local system */
@@ -595,6 +621,25 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 goto assign;
            }
            bpf_sk_release(sk);
+        }
+        udp_state_key.daddr = tuple->ipv4.saddr;
+        udp_state_key.saddr = tuple->ipv4.daddr;
+        udp_state_key.sport = tuple->ipv4.dport;
+        udp_state_key.dport = tuple->ipv4.sport;
+	    unsigned long long tstamp = bpf_ktime_get_ns();
+        struct udp_state *ustate = get_udp(udp_state_key);
+        if(ustate){
+           if(ustate->tstamp > (tstamp + 30000000000)){
+               bpf_printk("udp inbound matched expired state\n");
+               del_udp(udp_state_key);
+               ustate = get_udp(udp_state_key);
+               if(!ustate){
+                  bpf_printk("expired udp state removed\n");
+               }
+           }
+           else{
+               return TC_ACT_OK;
+           }
         }
     }
     //init the match_count_map

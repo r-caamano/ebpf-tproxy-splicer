@@ -29,15 +29,17 @@
 #include <iproute2/bpf_elf.h>
 #include <stdbool.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 #include <linux/icmp.h>
 #include <linux/if.h>
 #include <stdio.h>
 
 #define BPF_MAP_ID_TCP_MAP 6
+#define BPF_MAP_ID_UDP_MAP 7
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
 
-/*Key to tcp_map*/
-struct tcp_key {
+/*Key to tcp_map and udp_map*/
+struct tuple_key {
     __u32 daddr;
     __u32 saddr;
     __u16 sport;
@@ -55,27 +57,51 @@ struct tcp_state {
     int pad;
 };
 
+/*Value to udp_map*/
+struct udp_state {
+    unsigned long long tstamp;
+};
+
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(id, BPF_MAP_ID_TCP_MAP);
-     __uint(key_size, sizeof(struct tcp_key));
+     __uint(key_size, sizeof(struct tuple_key));
      __uint(value_size,sizeof(struct tcp_state));
      __uint(max_entries, 200);
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
-static inline void insert_tcp(struct tcp_state tstate, struct tcp_key key){
+struct {
+     __uint(type, BPF_MAP_TYPE_LRU_HASH);
+     __uint(id, BPF_MAP_ID_UDP_MAP);
+     __uint(key_size, sizeof(struct tuple_key));
+     __uint(value_size,sizeof(struct udp_state));
+     __uint(max_entries, 200);
+     __uint(pinning, LIBBPF_PIN_BY_NAME);
+} udp_map SEC(".maps");
+
+static inline void insert_tcp(struct tcp_state tstate, struct tuple_key key){
      bpf_map_update_elem(&tcp_map, &key, &tstate,0);
 }
 
-static inline void del_tcp(struct tcp_key key){
+static inline void del_tcp(struct tuple_key key){
      bpf_map_delete_elem(&tcp_map, &key);
 }
 
-static inline struct tcp_state *get_tcp(struct tcp_key key){
+static inline struct tcp_state *get_tcp(struct tuple_key key){
     struct tcp_state *ts;
     ts = bpf_map_lookup_elem(&tcp_map, &key);
 	return ts;
+}
+
+static inline void insert_udp(struct udp_state ustate, struct tuple_key key){
+     bpf_map_update_elem(&udp_map, &key, &ustate,0);
+}
+
+static inline struct udp_state *get_udp(struct tuple_key key){
+    struct udp_state *us;
+    us = bpf_map_lookup_elem(&udp_map, &key);
+	return us;
 }
 
 
@@ -154,7 +180,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool tcp=false;
     bool arp=false;
     bool icmp=false;
-    struct tcp_key tcp_state_key;
+    struct tuple_key tcp_state_key;
+    struct tuple_key udp_state_key;
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -166,7 +193,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     /* check if incomming packet is a UDP or TCP tuple */
     tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp);
 
-    /* if not tuple forward ARP and drop all other traffic */
+    /* if not tuple forward */
     if (!tuple){
         return TC_ACT_OK;
     }
@@ -254,7 +281,31 @@ int bpf_sk_splice(struct __sk_buff *skb){
      * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
      * openziti router has tproxy intercepts defined for the flow
      */ 
-        return TC_ACT_OK;
+        struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+        if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        struct udphdr *udph = (struct udphdr *)((unsigned long)iph + sizeof(*iph));
+        if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
+            return TC_ACT_SHOT;
+        }
+        udp_state_key.daddr = tuple->ipv4.daddr;
+        udp_state_key.saddr = tuple->ipv4.saddr;
+        udp_state_key.sport = tuple->ipv4.sport;
+        udp_state_key.dport = tuple->ipv4.dport;
+	    unsigned long long tstamp = bpf_ktime_get_ns();
+        struct udp_state *ustate = get_udp(udp_state_key);
+        if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+            struct udp_state us = {
+		        tstamp
+	        };
+            insert_udp(us, udp_state_key);
+            bpf_printk("udp conv initiated to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
+        }
+        else if(ustate){
+            ustate->tstamp = tstamp;
+            bpf_printk("udp packet sent matched existing state %x : %lld\n" ,tuple->ipv4.daddr, ustate->tstamp);
+        }
     }
     return TC_ACT_OK;
 }
