@@ -287,7 +287,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 else{
                     tstate->tstamp = tstamp;
-                    bpf_printk("sent ack to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
+                    //bpf_printk("sent ack to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
                 }
             }
         }
