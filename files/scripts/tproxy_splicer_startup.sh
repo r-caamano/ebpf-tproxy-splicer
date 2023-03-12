@@ -141,6 +141,19 @@ function update_map_user()
         else
            echo "INFO: No rules found in $ebpf_user_file, nothing to do" 
         fi
+        # Enable or disable icmp on $LANIF
+        if [[ -n  `yq '.icmp' $ebpf_user_file` ]]; then
+            ICMP=`yq '.icmp.enable' $ebpf_user_file`
+            if [ $ICMP == true ]; then
+                echo "INFO: ICMP is set to $ICMP"
+                $etables -e $LANIP
+            else
+                echo "INFO: ICMP is set to $ICMP"
+                $etables -e $LANIP -d
+            fi
+        else
+            echo "INFO: No icmp found in $ebpf_user_file, nothing to do"
+        fi
     else
         echo "INFO: File $ebpf_user_file not found, nothing to do"
     fi
