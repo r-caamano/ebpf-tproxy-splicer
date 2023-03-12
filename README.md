@@ -41,6 +41,7 @@ program would never reach that search depth.
 ```bash   
 sudo tc qdisc add dev <interface name>  clsact
 sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
+sudo tc filter add dev <interface name> egress bpf da obj outbound_track.o sec action
 sudo ufw allow in on <interface name> to any
 ```
 
