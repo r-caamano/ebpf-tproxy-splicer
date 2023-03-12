@@ -222,6 +222,10 @@ int bpf_sk_splice(struct __sk_buff *skb){
             if(tstate){
                 del_tcp(tcp_state_key);
                 bpf_printk("Received rst from client %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                tstate = get_tcp(tcp_state_key);
+                if(!tstate){
+                    bpf_printk("removed tcp state\n");
+                }
             }
         }
         else if(tcph->ack){
