@@ -638,6 +638,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
                 else{
+                    ustate->tstamp = tstamp;
                     return TC_ACT_OK;
                 }
             }
