@@ -172,7 +172,8 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
 //ebpf tc code entry program
 SEC("action")
 int bpf_sk_splice(struct __sk_buff *skb){
-    struct bpf_sock_tuple *tuple;
+    struct bpf_sock *sk;
+    struct bpf_sock_tuple *tuple, reverse_tuple = {0};
     int tuple_len;
     bool ipv4 = false;
     bool ipv6 = false;
@@ -217,38 +218,51 @@ int bpf_sk_splice(struct __sk_buff *skb){
         if ((unsigned long)(tcph + 1) > (unsigned long)skb->data_end){
             return TC_ACT_SHOT;
         }
+        reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
+        reverse_tuple.ipv4.dport = tuple->ipv4.sport;
+        reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
+        reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+        sk = bpf_skc_lookup_tcp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4),BPF_F_CURRENT_NETNS, 0);
+        if(sk){
+            if (sk->state != BPF_TCP_LISTEN){
+                bpf_sk_release(sk);
+                return TC_ACT_OK;
+            }
+            bpf_sk_release(sk);
+            return TC_ACT_OK;
+        }
         tcp_state_key.daddr = tuple->ipv4.daddr;
         tcp_state_key.saddr = tuple->ipv4.saddr;
         tcp_state_key.sport = tuple->ipv4.sport;
         tcp_state_key.dport = tuple->ipv4.dport;
-	    unsigned long long tstamp = bpf_ktime_get_ns();
+        unsigned long long tstamp = bpf_ktime_get_ns();
         struct tcp_state *tstate;
-        if(tcph->syn){
+        if(tcph->syn && !tcph->ack){
             struct tcp_state ts = {
-		    tstamp,
-		    1,
-	        0,
-		    0,
-		    0,
-		    0,
-		    0
-	    };
+            tstamp,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+        };
             insert_tcp(ts, tcp_state_key);
-            bpf_printk("sent syn to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
+            bpf_printk("sent syn to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
         }
         else if(tcph->fin){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 tstate->tstamp = tstamp;
                 tstate->fin = 1;
-                bpf_printk("sent fin to %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                bpf_printk("sent fin to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstate->tstamp);
             }
         }
         else if(tcph->rst){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 del_tcp(tcp_state_key);
-                bpf_printk("Received rst from client %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                bpf_printk("Received rst from client 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstate->tstamp);
                 tstate = get_tcp(tcp_state_key);
                 if(!tstate){
                     bpf_printk("removed tcp state\n");
@@ -265,7 +279,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 if(tstate->fin == 1){
                     del_tcp(tcp_state_key);
-                    bpf_printk("sent final ack to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
+                    bpf_printk("sent final ack to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
                     tstate = get_tcp(tcp_state_key);
                     if(!tstate){
                         bpf_printk("removed tcp state\n");
@@ -273,6 +287,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 }
                 else{
                     tstate->tstamp = tstamp;
+                    bpf_printk("sent ack to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
                 }
             }
         }
@@ -289,22 +304,34 @@ int bpf_sk_splice(struct __sk_buff *skb){
         if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
             return TC_ACT_SHOT;
         }
-        udp_state_key.daddr = tuple->ipv4.daddr;
-        udp_state_key.saddr = tuple->ipv4.saddr;
-        udp_state_key.sport = tuple->ipv4.sport;
-        udp_state_key.dport = tuple->ipv4.dport;
-	    unsigned long long tstamp = bpf_ktime_get_ns();
-        struct udp_state *ustate = get_udp(udp_state_key);
-        if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
-            struct udp_state us = {
-		        tstamp
-	        };
-            insert_udp(us, udp_state_key);
-            bpf_printk("udp conv initiated to %x : %lld\n" ,tuple->ipv4.daddr, tstamp);
+        if ((unsigned long)tuple + tuple_len > (unsigned long)skb->data_end){
+           return TC_ACT_SHOT;
         }
-        else if(ustate){
-            ustate->tstamp = tstamp;
-            bpf_printk("udp packet sent matched existing state %x : %lld\n" ,tuple->ipv4.daddr, ustate->tstamp);
+        reverse_tuple.ipv4.daddr = tuple->ipv4.saddr;
+        reverse_tuple.ipv4.dport = tuple->ipv4.sport;
+        reverse_tuple.ipv4.saddr = tuple->ipv4.daddr;
+        reverse_tuple.ipv4.sport = tuple->ipv4.dport;
+	    unsigned long long tstamp = bpf_ktime_get_ns();
+        sk = bpf_sk_lookup_udp(skb, &reverse_tuple, sizeof(reverse_tuple.ipv4), BPF_F_CURRENT_NETNS, 0);
+        if(sk){
+           bpf_sk_release(sk);
+        }else{
+            udp_state_key.daddr = tuple->ipv4.daddr;
+            udp_state_key.saddr = tuple->ipv4.saddr;
+            udp_state_key.sport = tuple->ipv4.sport;
+            udp_state_key.dport = tuple->ipv4.dport;
+            struct udp_state *ustate = get_udp(udp_state_key);
+            if((!ustate) || (ustate->tstamp > (tstamp + 30000000000))){
+                struct udp_state us = {
+                    tstamp
+                };
+                insert_udp(us, udp_state_key);
+                bpf_printk("udp conv initiated to 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), tstamp);
+            }
+            else if(ustate){
+                ustate->tstamp = tstamp;
+                bpf_printk("udp packet sent matched existing state 0x%X : %lld\n" ,bpf_ntohl(tuple->ipv4.daddr), ustate->tstamp);
+            }
         }
     }
     return TC_ACT_OK;

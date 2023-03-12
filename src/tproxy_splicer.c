@@ -580,14 +580,14 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     if(tstate->est){
                         tstate->tstamp = tstamp;
                         tstate->fin = 1;
-                        bpf_printk("Received fin from Server %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                        bpf_printk("Received fin from Server 0x%X : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
                         return TC_ACT_OK;
                     }
                 }
                 else if(tcph->rst){
                     if(tstate->est){
                         del_tcp(tcp_state_key);
-                        bpf_printk("Received rst from Server %x : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
+                        bpf_printk("Received rst from Server 0x%X : %lld\n" ,tuple->ipv4.daddr, tstate->tstamp);
                         tstate = get_tcp(tcp_state_key);
                         if(!tstate){
                             bpf_printk("removed tcp state\n");
