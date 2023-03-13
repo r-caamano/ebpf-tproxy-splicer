@@ -569,7 +569,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tcp_state_key.dport = tuple->ipv4.sport;
 	        unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate = get_tcp(tcp_state_key);
-            if(tstate && (tstamp < (tstate->tstamp + 1500000000000))){    
+            if(tstate && (tstamp < (tstate->tstamp + 900000000000))){    
                 if(tcph->syn  && tcph->ack){
                     tstate->ack =1;
                     tstate->tstamp = tstamp;
