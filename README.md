@@ -31,7 +31,7 @@ program would never reach that search depth.
 
 A new addtion is firewall support for subtending devices i.e.
 
-    inet ----> ens33 ebpf-router ens37 ----> clients
+    inet <----> ens33 ebpf-router ens37 <----> clients
 
     with tproxy-splicer.o applied ingress on ens33 and oubound_track.o applied egress on ens33 the router will
     statefully track outbound udp and tcp connections on ens33 and allow the associated inbound traffic.  
