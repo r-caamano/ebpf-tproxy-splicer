@@ -146,10 +146,14 @@ function update_map_user()
             ICMP=`yq '.icmp.enable' $ebpf_user_file`
             if [ $ICMP == true ]; then
                 echo "INFO: ICMP is set to $ICMP"
-                $etables -e $LANIP
+                $etables -e $LANIF
+                sed -i '/ufw-before-input.*icmp/s/DROP/ACCEPT/g' /etc/ufw/before.rules
+                ufw reload
             else
                 echo "INFO: ICMP is set to $ICMP"
-                $etables -e $LANIP -d
+                $etables -e $LANIF -d
+                sed -i '/ufw-before-input.*icmp/s/ACCEPT/DROP/g' /etc/ufw/before.rules
+                echo "WARNING: icmp disable will not take affect until after reboot"
             fi
         else
             echo "INFO: No icmp found in $ebpf_user_file, nothing to do"
@@ -251,6 +255,7 @@ if [ -f "$router_config_file" ]; then
                         /usr/bin/rm $ebpf_map_home/ifindex_ip_map
                         /usr/bin/rm $ebpf_map_home/matched_map
                         /usr/bin/rm $ebpf_map_home/prog_map
+                        /usr/bin/rm $ebpf_map_home/icmp_map
                         # delete ufw rule associated with ebpf
                         ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort -r)
                         for index in $ufw_rule_num

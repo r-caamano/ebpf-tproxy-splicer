@@ -38,8 +38,10 @@
 #define BPF_MAP_ID_PROG_MAP 3
 #define BPF_MAP_ID_MATCHED_KEY 4
 #define BPF_MAP_ID_ICMP_MAP 5
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
+#ifndef BPF_MAX_ENTRIES
+#define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
+#endif
+#define MAX_INDEX_ENTRIES 100 //MAX port ranges per prefix need to match in user space apps 
 #define MAX_TABLE_SIZE  65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
