@@ -2,22 +2,19 @@
 --- 
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
 ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
-edge-routers. Note: For this to work the ziti-router code had to be modified to not insert ip tables tproxy rules for
-the services defined and to instead call etables for tproxy redirection. example edge code at 
-https://github.com/r-caamano/edge/tree/v0.26.11 assumes etables binary is in the ziti-router's search path and the
-eBPF program is loaded via linux tc command per instructions below. Those interested on how to setup an openziti
-development environment should visit https://github.com/openziti/ziti. Also note this is eBPF tc based so interception
-only occurs for traffic ingressing on the interface that the eBPF program is attached to. To intercept packets generated
-locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also
-provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will
-allow ssh to any address inbound however after the first tproxy mapping is inserted by the etables tool it will only
-allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be
-configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The
-open ziti edge-router then uses the etables user space app to insert rules to allow traffic in on the interface tc is
-running on. For those interested in additional background on the project please visit: 
+edge-routers. Those interested on how to setup an openziti development environment should visit 
+https://github.com/openziti/ziti. 
+Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program
+is attached to. To intercept packets generated locally by the router itself the eBPF program would need to be attached to
+the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp
+bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is
+inserted by the etables tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the
+eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router
+which traffic flows to accept. The open ziti edge-router then uses the etables user space app to insert rules to
+allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: 
 https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
-**Note**: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
+Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
 traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the
 Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For
 external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as
@@ -26,6 +23,11 @@ interface it needs to be a host address. Subnets will work on the loopback howev
 addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host. I've added similar
 functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
 if the destination ip/prefix does not fall within the subnet range of an external interface.
+
+The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet
+could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest
+cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the
+program would never reach that search depth.
 
 ## EBPF Build
 ---
@@ -85,6 +87,14 @@ sudo ./etables -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
 As mentioned earlier if you add -r, --route as argument the program will add 172.16.240.0/24 to the "lo" interface if it
 does not overlap with an external LAN interface subnet.
 
+Example: Insert map entry to with source filteing to only allow rule for ip source 10.1.1.1/32.
+
+```bash
+Usage: ./map_update -I -c <ip dest address or prefix> -m <dest prefix len> -o <origin address or prefix> -n <origin prefix len> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
+
+sudo sudo ./map_update -I -c 172.16.240.0 -m 24 -o 10.1.1.1 -n 32  -p tcp -l 22 -h 22 -t 0
+```
+
 
 Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1
 with tproxy_port set to 0 signifying local connect rule
@@ -98,19 +108,18 @@ Example: Monitor ebpf trace messages
 ```
 sudo cat /sys/kernel/debug/tracing/trace_pipe
   
-<idle>-0       [000] dNs3. 23100.582441: bpf_trace_printk: tproxy_mapping->5060 to 33626
-<idle>-0       [000] d.s3. 23101.365172: bpf_trace_printk: ens33 : protocol_id=17
-<idle>-0       [000] dNs3. 23101.365205: bpf_trace_printk: tproxy_mapping->5060 to 33626
-<idle>-0       [000] d.s3. 23101.725048: bpf_trace_printk: ens33 : protocol_id=17
-<idle>-0       [000] dNs3. 23101.725086: bpf_trace_printk: tproxy_mapping->5060 to 33626
-<idle>-0       [000] d.s3. 23102.389608: bpf_trace_printk: ens33 : protocol_id=17
-<idle>-0       [000] dNs3. 23102.389644: bpf_trace_printk: tproxy_mapping->5060 to 33626
-<idle>-0       [000] d.s3. 23102.989964: bpf_trace_printk: ens33 : protocol_id=17
-<idle>-0       [000] dNs3. 23102.989997: bpf_trace_printk: tproxy_mapping->5060 to 33626
-<idle>-0       [000] d.s3. 23138.910079: bpf_trace_printk: ens33 : protocol_id=6
-<idle>-0       [000] dNs3. 23138.910113: bpf_trace_printk: tproxy_mapping->22 to 39643
-<idle>-0       [000] d.s3. 23153.458326: bpf_trace_printk: ens33 : protocol_id=6
-<idle>-0       [000] dNs3. 23153.458359: bpf_trace_printk: tproxy_mapping->22 to 39643
+<idle>-0       [007] dNs.. 167940.070727: bpf_trace_printk: ens33
+<idle>-0       [007] dNs.. 167940.070728: bpf_trace_printk: source_ip = 0xA010101
+<idle>-0       [007] dNs.. 167940.070728: bpf_trace_printk: dest_ip = 0xAC10F001
+<idle>-0       [007] dNs.. 167940.070729: bpf_trace_printk: protocol_id = 17
+<idle>-0       [007] dNs.. 167940.070729: bpf_trace_printk: tproxy_mapping->5060 to 59423
+
+<idle>-0       [007] dNs.. 167954.255414: bpf_trace_printk: ens33
+<idle>-0       [007] dNs.. 167954.255414: bpf_trace_printk: source_ip = 0xA010101
+<idle>-0       [007] dNs.. 167954.255415: bpf_trace_printk: dest_ip = 0xAC10F001
+<idle>-0       [007] dNs.. 167954.255415: bpf_trace_printk: protocol_id = 6
+<idle>-0       [007] dNs.. 167954.255416: bpf_trace_printk: tproxy_mapping->22 to 39839
+
 ```
 Example: Remove previous entry from map
 ```bash
@@ -132,18 +141,19 @@ Usage: ./etables -L
 
 sudo ./etables -L
 
-target     proto    source          destination               mapping:
-------     -----    --------        ------------------        ---------------------------------------------------------
-TPROXY     tcp      anywhere        10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381
-TPROXY     tcp      anywhere        10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-TPROXY     udp      anywhere        172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-TPROXY     tcp      anywhere        172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381
-TPROXY     tcp      anywhere        172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-PASSTHRU   udp      anywhere        192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24 
-PASSTHRU   udp      anywhere        192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32
-PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
-TPROXY     udp      anywhere        192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-PASSTHRU   tcp      anywhere        192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+target     proto    origin              destination               mapping:
+------     -----    ---------------     ------------------        ---------------------------------------------------------
+TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381
+TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
+TPROXY     udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
+TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381
+TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
+PASSTHRU   udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24 
+PASSTHRU   udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32
+PASSTHRU   tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+TPROXY     udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
+PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+
 ```
 Example: List rules in map for a given prefix and protocol
 ```bash
@@ -151,9 +161,9 @@ Example: List rules in map for a given prefix and protocol
   
 sudo etables -L -c 192.168.100.100 -m 32 -p udp
   
-target     proto    source           destination              mapping:
+target     proto    origin           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
 ``` 
 
 Example: List rules in map for a given prefix
@@ -162,10 +172,10 @@ Example: List rules in map for a given prefix
 
 sudo etables -L -c 192.168.100.100 -m 32
 
-target     proto    source           destination              mapping:
+target     proto    origin           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      anywhere         192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-PASSTHRU   tcp      anywhere         192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
 ```
 
 ## Additional Distro testing
