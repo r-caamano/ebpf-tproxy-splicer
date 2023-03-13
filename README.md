@@ -27,7 +27,26 @@ if the destination ip/prefix does not fall within the subnet range of an externa
 The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet
 could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest
 cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the
-program would never reach that search depth.
+program would never reach that search depth.  
+
+A new addtion is firewall support for subtending devices i.e.
+
+    inet ----> ens33 ebpf-router ens37 ----> clients
+
+    with tproxy-splicer.o applied ingress on ens33 and oubound_track.o applied egress on ens33 the router will
+    statefully track outbound udp and tcp connections on ens33 and allow the associated inbound traffic.  
+    TCP:
+        If the tcp connections close gracefully then the entries will remove upon connection closure. 
+        if not then there is a 15 minute timeout that will remove the in active state if no traffic seen
+        in either direction.
+
+    UDP:
+        State will remain active as long as packets tuples matching SRCIP/SPORT/DSTIP/DPORT are seen in
+        either direction within 30 seconds.  If no packets seen in either dorection the state will expire.
+        If an external packet enters the interface after expire the entry will be deleted.  if an egress
+        packet fined a matching expired state it will return the state to active.
+    
+
 
 ## Build
 ---
