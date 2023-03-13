@@ -257,7 +257,7 @@ if [ -f "$router_config_file" ]; then
                         /usr/bin/rm $ebpf_map_home/prog_map
                         /usr/bin/rm $ebpf_map_home/icmp_map
                         # delete ufw rule associated with ebpf
-                        ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort -r)
+                        ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort)
                         for index in $ufw_rule_num
                         do
                             ufw --force delete $index
