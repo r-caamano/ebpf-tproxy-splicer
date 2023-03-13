@@ -602,7 +602,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     }
                 }
             }
-            else{
+            else if(tstate){
                 del_tcp(tcp_state_key);
             }
        }
