@@ -1,7 +1,7 @@
 ## Introduction
 --- 
 **Notice: This repo has been hard forked into https://github.com/netfoundry/ebpf-tproxy-splicer for inclusion in 
-CloudZiti edge-router builds as an optional interception mode.**
+CloudZiti edge-router builds as an optional interception mode. This repo will continue to be maintained for R&D.**
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
 ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
 edge-routers. Those interested on how to setup an openziti development environment should visit 
