@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [0.2.7] - 2023-03-14
+
+## Updated
+
+- Updated the router service file with the single binary router run command
+
 ## [0.2.6] - 2023-03-13
 
 ### Added
