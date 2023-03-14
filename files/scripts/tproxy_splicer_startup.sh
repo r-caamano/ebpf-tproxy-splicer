@@ -257,10 +257,11 @@ if [ -f "$router_config_file" ]; then
                         /usr/bin/rm $ebpf_map_home/prog_map
                         /usr/bin/rm $ebpf_map_home/icmp_map
                         # delete ufw rule associated with ebpf
-                        ufw_rule_num=$(ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index' | sort)
-                        for index in $ufw_rule_num
-                        do
-                            ufw --force delete $index
+                        ufw_rule_num=$(sudo ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index')
+                        while [[ $ufw_rule_num ]]; do
+                            echo $ufw_rule_num
+                            sudo ufw --force delete ${ufw_rule_num[0]}
+                            ufw_rule_num=$(sudo ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index')
                         done
                         # Restart ziti router service after reverting all changes
                         /usr/bin/systemctl restart ziti-router.service
