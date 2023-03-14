@@ -262,10 +262,10 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 del_tcp(tcp_state_key);
-                bpf_printk("Received rst from client 0x%X:%d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                bpf_printk("Received rst from client 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
                 tstate = get_tcp(tcp_state_key);
                 if(!tstate){
-                    bpf_printk("removed tcp state\n");
+                    bpf_printk("removed tcp state %X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
                 }
             }
         }
