@@ -248,7 +248,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             0
         };
             insert_tcp(ts, tcp_state_key);
-            bpf_printk("sent syn to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+            bpf_printk("sent syn to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs  (tuple->ipv4.dport));
         }
         else if(tcph->fin){
             tstate = get_tcp(tcp_state_key);
@@ -273,7 +273,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 if(tstate->ack && tstate->syn){
-                    bpf_printk("Established tcp connection to : %X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    bpf_printk("Established tcp connection to : 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
                     tstate->tstamp = tstamp;
                     tstate->syn = 0;
                     tstate->est = 1;
@@ -283,7 +283,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     bpf_printk("sent final ack to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
                     tstate = get_tcp(tcp_state_key);
                     if(!tstate){
-                        bpf_printk("removed tcp state: %X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport ));
+                        bpf_printk("removed tcp state: 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport ));
                     }
                 }
                 else{
