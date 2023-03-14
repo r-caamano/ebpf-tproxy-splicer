@@ -331,7 +331,6 @@ int bpf_sk_splice(struct __sk_buff *skb){
             }
             else if(ustate){
                 ustate->tstamp = tstamp;
-                bpf_printk("udp packet sent matched existing state 0x%X:%d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
             }
         }
     }
