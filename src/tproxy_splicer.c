@@ -573,24 +573,24 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 if(tcph->syn  && tcph->ack){
                     tstate->ack =1;
                     tstate->tstamp = tstamp;
-                    bpf_printk("got syn-ack %x :%d\n" ,bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                    bpf_printk("got syn-ack %x :%d\n" ,bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                     return TC_ACT_OK;
                 }
                 else if(tcph->fin){
                     if(tstate->est){
                         tstate->tstamp = tstamp;
                         tstate->fin = 1;
-                        bpf_printk("Received fin from Server 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                        bpf_printk("Received fin from Server 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                         return TC_ACT_OK;
                     }
                 }
                 else if(tcph->rst){
                     if(tstate->est){
                         del_tcp(tcp_state_key);
-                        bpf_printk("Received rst from Server 0x%X :%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                        bpf_printk("Received rst from Server 0x%X :%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                         tstate = get_tcp(tcp_state_key);
                         if(!tstate){
-                            bpf_printk("removed tcp state: %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                            bpf_printk("removed tcp state: %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                         }
                         return TC_ACT_OK;
                     }
@@ -630,11 +630,11 @@ int bpf_sk_splice(struct __sk_buff *skb){
             struct udp_state *ustate = get_udp(udp_state_key);
             if(ustate){
                 if(tstamp > (ustate->tstamp + 30000000000)){
-                    bpf_printk("udp inbound matched expired state from %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                    bpf_printk("udp inbound matched expired state from %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                     del_udp(udp_state_key);
                     ustate = get_udp(udp_state_key);
                     if(!ustate){
-                        bpf_printk("expired udp state removed from %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohl(tuple->ipv4.sport));
+                        bpf_printk("expired udp state removed from %X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
                     }
                 }
                 else{
