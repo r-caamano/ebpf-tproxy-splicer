@@ -4,11 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
-## [0.2.7] - 2023-03-14
+## [0.2.7] - 2023-03-15
 
-## Updated
+## Fixed
 
 - Updated the router service file with the single binary router run command
+- Updated the ufw rule deletion logic, when diverter-disable is invoked
 
 ## [0.2.6] - 2023-03-13
 
@@ -23,7 +24,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Bug Fix
 
-- Added check for maximum port ranges reached for a particular prefix destination 
+- Added check for maximum port ranges reached for a particular prefix destination
 
 ## [0.2.4] - 2023-02-16
 

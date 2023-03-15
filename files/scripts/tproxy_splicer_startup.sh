@@ -71,7 +71,7 @@ attach_ebpf_program()
                 fi
             fi
         fi
-        if [ $CHECK_EBPF_STATUS == false ] && [ $ADD_USER_INGRESS_RULES == false ]; then
+        if [ $CHECK_EBPF_STATUS == false ] && [ $ADD_USER_INGRESS_RULES == false ] && [ $DELETE_USER_INGRESS_RULES == false ]; then
             update_map_local
         fi
     else
