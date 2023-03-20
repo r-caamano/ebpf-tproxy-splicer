@@ -384,7 +384,7 @@ void usage(char *message)
     exit(1);
 }
 
-bool set_echo(int *idx){
+bool set_diag(int *idx){
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr echo_map;
     /*path to pinned ifindex_ip_map*/
@@ -413,11 +413,23 @@ bool set_echo(int *idx){
         close(icmp_fd);
         return false;
     }else{
-        if(!disable){
-            o_diag.echo = true;
+        if(echo){
+            if(!disable){
+                o_diag.echo = true;
+            }
+            else{
+                o_diag.echo = false;
+            }
+             printf("Set icmp-echo to %d\n", !disable);
         }
-        else{
-            o_diag.echo = false;
+        if(verbose){
+            if(!disable){
+                o_diag.verbose = true;
+            }
+            else{
+                o_diag.verbose = false;
+            }
+            printf("Set verbose to %d\n", !disable);
         }
     }  
     int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &echo_map, sizeof(echo_map));
@@ -428,53 +440,6 @@ bool set_echo(int *idx){
         exit(1);
     }
     close(icmp_fd);
-    return true;
-}
-
-bool set_verbose(int *idx){
-    /* create bpf_attr to store ifindex_ip_map */
-    union bpf_attr verbose_map;
-    /*path to pinned ifindex_ip_map*/
-    const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
-    /* open BPF ifindex_ip_map */
-    memset(&verbose_map, 0, sizeof(verbose_map));
-    /* set path name with location of map in filesystem */
-    verbose_map.pathname = (uint64_t)diag_map_path;
-    verbose_map.bpf_fd = 0;
-    verbose_map.file_flags = 0;
-    /* make system call to get fd for map */
-    int verbose_fd = syscall(__NR_bpf, BPF_OBJ_GET, &verbose_map, sizeof(verbose_map));
-    if (verbose_fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
-    }
-    verbose_map.map_fd = verbose_fd;
-    struct diag_ip4 o_diag;
-    verbose_map.key = (uint64_t)idx;
-    verbose_map.flags = BPF_ANY;
-    verbose_map.value = (uint64_t)&o_diag;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &verbose_map, sizeof(verbose_map));
-    if(lookup){
-        printf("Invalid Index\n");
-        close(verbose_fd);
-        return false;
-    }else{
-        if(!disable){
-            o_diag.verbose = true;
-        }
-        else{
-            o_diag.verbose = false;
-        }
-    }  
-    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &verbose_map, sizeof(verbose_map));
-    if (ret)
-    {
-        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-        close(verbose_fd);
-        exit(1);
-    }
-    close(verbose_fd);
     return true;
 }
 
@@ -546,18 +511,9 @@ bool interface_map()
             if_map.key = (uint64_t)&idx;
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
-            if(echo){
+            if(echo || verbose){
                 if(!strcmp(echo_interface, address->ifa_name)){
-                    if(set_echo(&idx)){
-                        printf("successfully changed icmp echo for %s to %d\n", address->ifa_name, !disable);
-                    }
-                }
-            }
-            if(verbose){
-                if(!strcmp(echo_interface, address->ifa_name)){
-                    if(set_verbose(&idx)){
-                        printf("successfully changed verbose output for %s to %d\n", address->ifa_name, !disable);
-                    }
+                    set_diag(&idx);
                 }
             }
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
