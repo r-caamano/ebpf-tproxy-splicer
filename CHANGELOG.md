@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [0.2.8] - 2023-03-20
+
+- added -v, --verbose <ifname> option to enable and disable trace output.  -d --disables when added disables verbose mode.  default is disabled.
+
 ## [0.2.7] - 2023-03-15
 
 ## Fixed
