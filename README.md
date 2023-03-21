@@ -1,5 +1,7 @@
 ## Introduction
 --- 
+**Notice: This repo has been hard forked into https://github.com/netfoundry/ebpf-tproxy-splicer for inclusion in 
+CloudZiti edge-router builds as an optional interception mode. This repo will continue to be maintained for R&D.**
 This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
 ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
 edge-routers. Those interested on how to setup an openziti development environment should visit 
@@ -12,22 +14,7 @@ inserted by the map_update tool it will only allow ssh addressed to the IP addre
 eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router
 which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to
 allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: 
-https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
-
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
-traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the
-Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For
-external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as
-the physical interface then you would need to add it as a secondary ip.  Subnets won't work for binding on the external
-interface it needs to be a host address. Subnets will work on the loopback however. OpenZiti binds intercept 
-addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host. I've added similar
-functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
-if the destination ip/prefix does not fall within the subnet range of an external interface.
-
-The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet
-could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest
-cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the
-program would never reach that search depth.  
+https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.  
 
 A new addtion is firewall support for subtending devices i.e.
 
@@ -49,8 +36,6 @@ A new addtion is firewall support for subtending devices i.e.
         either direction within 30 seconds.  If no packets seen in either dorection the state will expire.
         If an external packet enters the interface after expire the entry will be deleted.  if an egress
         packet fined a matching expired state it will return the state to active.
-    
-
 
 ## Build
 ---
