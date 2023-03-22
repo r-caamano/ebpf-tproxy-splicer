@@ -1,44 +1,29 @@
 ## Introduction
---- 
-This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect 
-ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti
-edge-routers. Those interested on how to setup an openziti development environment should visit 
-https://github.com/openziti/ziti. 
-Also note this is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program
-is attached to. To intercept packets generated locally by the router itself the eBPF program would need to be attached to
-the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp
-bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is
-inserted by the etables tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the
-eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router
-which traffic flows to accept. The open ziti edge-router then uses the etables user space app to insert rules to
-allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: 
-https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
 
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
-traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the
-Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For
-external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as
-the physical interface then you would need to add it as a secondary ip.  Subnets won't work for binding on the external
-interface it needs to be a host address. Subnets will work on the loopback however. OpenZiti binds intercept 
-addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host. I've added similar
-functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
+---
+
+This is a project to develop an eBPF program that utilizes tc-bpf to act as a statefull ingress FW and to redirect ingress ipv4 udp/tcp flows toward dynamically created sockets that correspond to zero trust based services on OpenZiti edge-routers. Those interested on how to setup an openziti development environment should visit https://github.com/openziti/ziti.
+
+This is eBPF tc based so interception only occurs for traffic ingressing on the interface that the eBPF program is attached to. To intercept packets generated locally by the router itself the eBPF program would need to be attached to the loopback interface. The eBPF program also provides stateful inbound firewalling and only allows ssh, dhcp and arp bypass by default. Initially the program will allow ssh to any address inbound however after the first tproxy mapping is inserted by the etables tool it will only allow ssh addressed to the IP address of the interface that tc has loaded the eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router which traffic flows to accept. The open ziti edge-router then uses the etables user space app to insert rules to allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
+
+Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as the physical interface then you would need to add it as a secondary ip.  Subnets won't work for binding on the external interface it needs to be a host address. Subnets will work on the loopback however. OpenZiti binds intercept addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host. I've added similar functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
 if the destination ip/prefix does not fall within the subnet range of an external interface.
 
-The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet
-could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest
-cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the
-program would never reach that search depth.
+The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the program would never reach that search depth.
 
 ## EBPF Build
+
 ---
+
 [To build from source. Click here!](./BUILD.md)
 
 ## EBPF Deployment
+
 ---
 
 ### Attaching to interface
 
-```bash   
+```shell
 sudo tc qdisc add dev <interface name>  clsact
 sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
 sudo ufw allow in on <interface name> to any
@@ -50,11 +35,13 @@ initiated sockets as well. tc commands above do not survive reboot so would need
 
 ### Openziti Ingress
 
+---
+
 Testing with ziti-router after attaching. Build a ziti network first and create services as explained at [Host It Anywhere](https://docs.openziti.io/docs/learn/quickstarts/network/hosted/)
 
 Grab the edge router binary `(>= v0.27.3)` at [open ziti](https://github.com/openziti/ziti/releases).
 
-```bash
+```shell
 # Copy the user space map program to folder in $PATH i.e
 sudo cp etables /usr/bin
 
@@ -68,17 +55,21 @@ sudo cp etables /usr/bin
 sudo ziti-router run config.yml
 ```
 
-### Detaching from interface:
+### Detaching from interface
 
-```bash
+---
+
+```shell
 sudo tc qdisc del dev <interface name>  clsact
 ```
 
 ## EBPF Map Access from User Space
+
 ---
+
 Example: Insert map entry to direct SIP traffic destined for 172.16.240.0/24
 
-```bash
+```shell
 Usage: ./etables -I `<ip dest address or prefix>` -m `<prefix length>` -l `<low_port>` -h `<high_port>` -t `<tproxy_port>` -p `<protocol>`
 
 sudo ./etables -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
@@ -89,23 +80,26 @@ does not overlap with an external LAN interface subnet.
 
 Example: Insert map entry to with source filteing to only allow rule for ip source 10.1.1.1/32.
 
-```bash
+```shell
 Usage: ./map_update -I -c <ip dest address or prefix> -m <dest prefix len> -o <origin address or prefix> -n <origin prefix len> -l <low_port> -h <high_port> -t <tproxy_port> -p <protocol>
 
 sudo sudo ./map_update -I -c 172.16.240.0 -m 24 -o 10.1.1.1 -n 32  -p tcp -l 22 -h 22 -t 0
 ```
 
-
 Example: Insert FW rule for local router tcp listen port 443 where local router's tc interface ip address is 10.1.1.1
 with tproxy_port set to 0 signifying local connect rule
 
-```bash
+```shell
 sudo ./etables -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp  
 ```
 
 Example: Monitor ebpf trace messages
+The trace is disabled by default. One needs to enable the verbose mode to see the bpf trace logs shown below.
 
-```
+```shell
+# to enable
+sudo ./etables -v ens33
+
 sudo cat /sys/kernel/debug/tracing/trace_pipe
   
 <idle>-0       [007] dNs.. 167940.070727: bpf_trace_printk: ens33
@@ -120,23 +114,29 @@ sudo cat /sys/kernel/debug/tracing/trace_pipe
 <idle>-0       [007] dNs.. 167954.255415: bpf_trace_printk: protocol_id = 6
 <idle>-0       [007] dNs.. 167954.255416: bpf_trace_printk: tproxy_mapping->22 to 39839
 
+# to disable
+sudo ./etables -v ens33 -d
 ```
+
 Example: Remove previous entry from map
-```bash
+
+```shell
 Usage: ./etables -D -c `<ip dest address or prefix>` -m `<prefix len>` -l `<low_port>` -p `<protocol>`
 
 sudo ./etables -D -c 172.16.240.0 -m 24 -l 5060 -p udp
 ```
 
 Example: Remove all entries from map
-```
+
+```shell
 Usage: ./etables -F
 
 sudo ./etables -F
 ```
 
 Example: List all rules in map
-```
+
+```shell
 Usage: ./etables -L
 
 sudo ./etables -L
@@ -155,8 +155,10 @@ TPROXY     udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:1000
 PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
 
 ```
+
 Example: List rules in map for a given prefix and protocol
-```bash
+
+```shell
 # Usage: ./etables -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
   
 sudo etables -L -c 192.168.100.100 -m 32 -p udp
@@ -164,10 +166,11 @@ sudo etables -L -c 192.168.100.100 -m 32 -p udp
 target     proto    origin           destination              mapping:
 ------     -----    --------         ------------------       ---------------------------------------------------------
 PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-``` 
+```
 
 Example: List rules in map for a given prefix
-```bash
+
+```shell
 # Usage: ./etables -L -c `<ip dest address or prefix>` -m `<prefix len>` -p `<protocol>`
 
 sudo etables -L -c 192.168.100.100 -m 32
@@ -179,7 +182,6 @@ PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	 
 ```
 
 ## Additional Distro testing
----
 
 Fedora 36 kernel 6.0.5-200
 
@@ -187,7 +189,7 @@ On fedora I found that NetworkManager interferes with eBPF socket redirection an
 be unpredictable so belowis what I changed to get it working consistently. Other less
 intrusive methods not requiring removal of NM might also be possible.
 
-```bash
+```shell
 sudo yum install network-scripts
 sudo systemctl enable network
 sudo yum remove NetworkManager
@@ -210,7 +212,7 @@ ONBOOT=yes
 The following grub change is only necessary on systems that do not use ethX naming by
 default like vmware. this changes fedora back to using ethX for interface naming network-scripts looks for this nomenclature and will fail DHCP otherwise
 
-```bash 
+```shell
 sudo vi /etc/default/grub
 
 # change:
@@ -222,9 +224,10 @@ GRUB_CMDLINE_LINUX="rd.lvm.lv=fedora_fedora/root rhgb quiet net.ifnames=0 biosde
 # then:
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 ```
+
 This updates dhcp script to dynamically update systemd-resolved on per interface resolver
 
-```bash
+```shell
 sudo vi /usr/sbin/dhclient-script
 
 # change:
@@ -239,25 +242,27 @@ if [ -n "${new_domain_name_servers}" ]; then
         echo "nameserver ${nameserver}" >> "${rscf}"
         systemd-resolve --interface "${interface}" --set-dns "${nameserver}"
     done
-````
+```
 
 ## Analisys
----
 
-                                                        DIAGRAMS
+                                        DIAGRAMS
 
-![Diagram](packet-flow.drawio.png) 
-
+![Diagram](packet-flow.drawio.png)
 
 ## EBPF Management After Deployment on Ubuntu
+
 ---
 Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggered by ziti-router systemd service when it is restarted. Both are located under the files directory.
+
 1. [tproxy_splicer_startup.sh](./files/scripts/tproxy_splicer_startup.sh)
 1. [ziti-router.service](./files/services/ziti-router.service)
 
-The script is created with comments, so hopefully the comments will help readers understand what is happening. One thing to pay attention to is `lanIf`. The `lanIf` option is configred in the ziti-router configuration file evey time either tproxy with iptables or ebpf is configured. 
-```bash
+The script is created with comments, so hopefully the comments will help readers understand what is happening. One thing to pay attention to is `lanIf`. The `lanIf` option is configred in the ziti-router configuration file evey time either tproxy with iptables or ebpf is configured.
+
+```shell
 # Here is the code snippet from the script:
 MYIF=$(cat /opt/netfoundry/ziti/ziti-router/config.yml |yq '.listeners[] | select(.binding == "tunnel").options.lanIf')
 ```
+
 As one can see we lookup lanIf (i.e. `.options.lanIf`) in the config.yml file located in the ziti-router directory. Based on that port everyting else is configured for the ebpf program to work. We also look up the fabric, edge, and health-check ports to update the tproxy map to allow these ports in along with `DNS UDP Port 53`.
