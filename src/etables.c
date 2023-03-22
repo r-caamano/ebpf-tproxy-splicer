@@ -79,6 +79,7 @@ static unsigned short protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
 static char *echo_interface;
+static char *verbose_interface;
 const char *argp_program_version = "0.2.8";
 int get_key_count();
 
@@ -386,28 +387,28 @@ void usage(char *message)
 
 bool set_diag(int *idx){
     /* create bpf_attr to store ifindex_ip_map */
-    union bpf_attr echo_map;
+    union bpf_attr diag_map;
     /*path to pinned ifindex_ip_map*/
     const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
     /* open BPF ifindex_ip_map */
-    memset(&echo_map, 0, sizeof(echo_map));
+    memset(&diag_map, 0, sizeof(diag_map));
     /* set path name with location of map in filesystem */
-    echo_map.pathname = (uint64_t)diag_map_path;
-    echo_map.bpf_fd = 0;
-    echo_map.file_flags = 0;
+    diag_map.pathname = (uint64_t)diag_map_path;
+    diag_map.bpf_fd = 0;
+    diag_map.file_flags = 0;
     /* make system call to get fd for map */
-    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &echo_map, sizeof(echo_map));
+    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &diag_map, sizeof(diag_map));
     if (icmp_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
-    echo_map.map_fd = icmp_fd;
+    diag_map.map_fd = icmp_fd;
     struct diag_ip4 o_diag;
-    echo_map.key = (uint64_t)idx;
-    echo_map.flags = BPF_ANY;
-    echo_map.value = (uint64_t)&o_diag;
-    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &echo_map, sizeof(echo_map));
+    diag_map.key = (uint64_t)idx;
+    diag_map.flags = BPF_ANY;
+    diag_map.value = (uint64_t)&o_diag;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
     if(lookup){
         printf("Invalid Index\n");
         close(icmp_fd);
@@ -420,7 +421,7 @@ bool set_diag(int *idx){
             else{
                 o_diag.echo = false;
             }
-             printf("Set icmp-echo to %d\n", !disable);
+             printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
         }
         if(verbose){
             if(!disable){
@@ -429,10 +430,10 @@ bool set_diag(int *idx){
             else{
                 o_diag.verbose = false;
             }
-            printf("Set verbose to %d\n", !disable);
+            printf("Set verbose to %d for %s\n", !disable, verbose_interface);
         }
     }  
-    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &echo_map, sizeof(echo_map));
+    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
     if (ret)
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
@@ -483,6 +484,7 @@ bool interface_map()
     in_addr_t ifip;
     int ipcheck = 0;
     bool create_route = true;
+    int lo_count = 0;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -503,6 +505,7 @@ bool interface_map()
             else
             {
                ifip = 0x0100007f;
+               lo_count++;
             }
             struct ifindex_ip4 ifip4 = {
                 ifip,
@@ -511,8 +514,15 @@ bool interface_map()
             if_map.key = (uint64_t)&idx;
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
-            if(echo || verbose){
+            if(echo && !(idx == 1)){
                 if(!strcmp(echo_interface, address->ifa_name)){
+                    set_diag(&idx);
+                }
+            }else if(echo && !strcmp(echo_interface,"lo") && (idx == 1) && lo_count == 1){
+                printf("icmp echo is always set to 1 for lo\n");
+            }
+            if(verbose && !((idx==1) && lo_count > 1)){
+                if(!strcmp(verbose_interface, address->ifa_name)){
                     set_diag(&idx);
                 }
             }
@@ -1064,7 +1074,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         verbose = true;
-        echo_interface = arg;
+        verbose_interface = arg;
         break;
     default:
         return ARGP_ERR_UNKNOWN;
@@ -1077,6 +1087,18 @@ struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
+
+    if(echo && verbose){
+        usage("Can not set -e, --icmp-echo and -v, --verbose with single call to etables");
+    }
+
+    if(echo && (add || delete || list || flush)){
+        usage("Can not set -e, --icmp-echo with any other calls to etables besides -d");
+    }    
+
+    if(verbose && (add || delete || list || flush)){
+        usage("Can not set -v, --verbose with any other calls to etables besides -d");
+    }   
 
     if(disable && (!echo && !verbose)){
         usage("Missing argument at lease one of -e, --icmp-echo or -v, --verbose");
