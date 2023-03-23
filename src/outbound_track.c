@@ -34,6 +34,7 @@
 #include <linux/if.h>
 #include <stdio.h>
 
+#define BPF_MAP_ID_DIAG_MAP 5
 #define BPF_MAP_ID_TCP_MAP 6
 #define BPF_MAP_ID_UDP_MAP 7
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
@@ -62,6 +63,24 @@ struct udp_state {
     unsigned long long tstamp;
 };
 
+/*value to diag_map*/
+struct diag_ip4 {
+    bool echo;
+    bool verbose;
+    bool per_interface;
+};
+
+//map to keep status of diagnostic rules
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(id, BPF_MAP_ID_DIAG_MAP);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(struct diag_ip4));
+    __uint(max_entries, 50);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} diag_map SEC(".maps");
+
+/*Hashmap to track outbound passthrough TCP connections*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(id, BPF_MAP_ID_TCP_MAP);
@@ -71,6 +90,7 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } tcp_map SEC(".maps");
 
+/*Hashmap to track outbound passthrough UDP connections*/
 struct {
      __uint(type, BPF_MAP_TYPE_LRU_HASH);
      __uint(id, BPF_MAP_ID_UDP_MAP);
@@ -80,28 +100,40 @@ struct {
      __uint(pinning, LIBBPF_PIN_BY_NAME);
 } udp_map SEC(".maps");
 
+/*Insert entry into tcp state table*/
 static inline void insert_tcp(struct tcp_state tstate, struct tuple_key key){
      bpf_map_update_elem(&tcp_map, &key, &tstate,0);
 }
 
+/*Remove entry into tcp state table*/
 static inline void del_tcp(struct tuple_key key){
      bpf_map_delete_elem(&tcp_map, &key);
 }
 
+/*get entry from tcp state table*/
 static inline struct tcp_state *get_tcp(struct tuple_key key){
     struct tcp_state *ts;
     ts = bpf_map_lookup_elem(&tcp_map, &key);
 	return ts;
 }
 
+/*Insert entry into udp state table*/
 static inline void insert_udp(struct udp_state ustate, struct tuple_key key){
      bpf_map_update_elem(&udp_map, &key, &ustate,0);
 }
 
+/*get entry from udp state table*/
 static inline struct udp_state *get_udp(struct tuple_key key){
     struct udp_state *us;
     us = bpf_map_lookup_elem(&udp_map, &key);
 	return us;
+}
+
+static inline struct diag_ip4 *get_diag_ip4(__u32 key){
+    struct diag_ip4 *if_diag;
+    if_diag = bpf_map_lookup_elem(&diag_map, &key);
+
+	return if_diag;
 }
 
 
@@ -110,7 +142,7 @@ static inline struct udp_state *get_udp(struct tuple_key key){
 * from the combined IP SA|DA and the TCP/UDP SP|DP. 
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
-    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp){
+    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, struct diag_ip4 *local_diag){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
     
@@ -135,7 +167,9 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         
         /* ensure ip header is in packet bounds */
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            bpf_printk("header too big");
+            if(local_diag->verbose){
+                bpf_printk("header too big");
+            }
             return NULL;
 		}
         /* ip options not allowed */
@@ -184,6 +218,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
     struct tuple_key tcp_state_key;
     struct tuple_key udp_state_key;
 
+    /*look up attached interface inbound diag status*/
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    if(!local_diag){
+        if(skb->ingress_ifindex == 1){
+            return TC_ACT_OK;
+        }else{
+            return TC_ACT_SHOT;
+        }
+    }
+
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
     /* verify its a valid eth header within the packet bounds */
@@ -192,7 +236,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 	}
 
     /* check if incomming packet is a UDP or TCP tuple */
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp);
+    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, local_diag);
 
     /* if not tuple forward */
     if (!tuple){
@@ -206,9 +250,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
     }
 
     /* if tcp based tuple implement statefull inspection to see if they were
-    * initiated by the local OS if not pass on to tproxy logic to determin if the
-    * openziti router has tproxy intercepts defined for the flow
-    */
+     * initiated by the local OS if not then its passthrough traffic and so wee need to
+     * setup our own state to track the outbound pass through connections in via shared hashmap
+    * with with ingress tc program*/
     if(tcp){
         struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
@@ -248,24 +292,32 @@ int bpf_sk_splice(struct __sk_buff *skb){
             0
         };
             insert_tcp(ts, tcp_state_key);
-            bpf_printk("sent syn to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs  (tuple->ipv4.dport));
+            if(local_diag->verbose){
+                bpf_printk("sent syn to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs  (tuple->ipv4.dport));
+            }
         }
         else if(tcph->fin){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 tstate->tstamp = tstamp;
                 tstate->fin = 1;
-                bpf_printk("sent fin to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                if(local_diag->verbose){
+                    bpf_printk("sent fin to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                }
             }
         }
         else if(tcph->rst){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 del_tcp(tcp_state_key);
-                bpf_printk("Received rst from client 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                if(local_diag->verbose){
+                    bpf_printk("Received rst from client 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                }
                 tstate = get_tcp(tcp_state_key);
                 if(!tstate){
-                    bpf_printk("removed tcp state %X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    if(local_diag->verbose){
+                        bpf_printk("removed tcp state %X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    }
                 }
             }
         }
@@ -273,17 +325,23 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tstate = get_tcp(tcp_state_key);
             if(tstate){
                 if(tstate->ack && tstate->syn){
-                    bpf_printk("Established tcp connection to : 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    if(local_diag->verbose){
+                        bpf_printk("Established tcp connection to : 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    }
                     tstate->tstamp = tstamp;
                     tstate->syn = 0;
                     tstate->est = 1;
                 }
                 if(tstate->fin == 1){
                     del_tcp(tcp_state_key);
-                    bpf_printk("sent final ack to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    if(local_diag->verbose){
+                        bpf_printk("sent final ack to 0x%X : %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                    }
                     tstate = get_tcp(tcp_state_key);
                     if(!tstate){
-                        bpf_printk("removed tcp state: 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport ));
+                        if(local_diag->verbose){
+                            bpf_printk("removed tcp state: 0x%X:%d\n", bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport ));
+                        }
                     }
                 }
                 else{
@@ -294,9 +352,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
         }
     }else{
     /* if udp based tuple implement statefull inspection to see if they were
-     * initiated by the local OS If yes jump to assign.if not pass on to tproxy logic to determin if the
-     * openziti router has tproxy intercepts defined for the flow
-     */ 
+     * initiated by the local OS if not then its passthrough traffic and so wee need to
+     * setup our own state to track the outbound pass through connections in via shared hashmap
+    * with with ingress tc program */
         struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
             return TC_ACT_SHOT;
@@ -327,7 +385,9 @@ int bpf_sk_splice(struct __sk_buff *skb){
                     tstamp
                 };
                 insert_udp(us, udp_state_key);
-                bpf_printk("udp conv initiated to 0x%X: %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                if(local_diag->verbose){
+                    bpf_printk("udp conv initiated to 0x%X: %d\n" ,bpf_ntohl(tuple->ipv4.daddr), bpf_ntohs(tuple->ipv4.dport));
+                }
             }
             else if(ustate){
                 ustate->tstamp = tstamp;

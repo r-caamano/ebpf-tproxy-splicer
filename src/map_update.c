@@ -312,6 +312,24 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
 
 void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_count)
 {
+    union bpf_attr if_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+    exit(1);
+    }
+    uint32_t if_key = 0;
+    if_map.map_fd = if_fd;
+    if_map.key = (uint64_t)&if_key;
     char *proto;
     if (key->protocol == IPPROTO_UDP)
     {
@@ -332,31 +350,84 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     char *scidr_block = malloc(19);
     sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
-
     int x = 0;
     for (; x < tuple->index_len; x++)
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
             ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));       
         if(intercept && !passthru){
-           if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
-                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                *rule_count += 1;
-           }
+            if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+                char interfaces[IF_NAMESIZE*28+32] = " [";
+                for(int i = 0; i < 28; i++){
+                    if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                        if_key = i;
+                        struct ifindex_ip4 ifip4;
+                        if_map.value = (uint64_t)&ifip4;
+                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                        if(!lookup){
+                            strcat(interfaces, ifip4.ifname);
+                            strcat(interfaces, ",");
+                        }
+                    }
+                }
+                if(strlen(interfaces)>2){
+                    printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+                }else{
+                    printf("%s%s\n",interfaces,"]");
+                }
+                *rule_count += 1;   
+            }
         }else if(passthru && !intercept){
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
-                   dpts, "PASSTHRU", dcidr_block);
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s ", "PASSTHRU", proto, scidr_block, dcidr_block,
+                dpts, "PASSTHRU", dcidr_block);
+                char interfaces[IF_NAMESIZE*28+32] = " [";
+                for(int i = 0; i < 28; i++){
+                    if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                        if_key = i;
+                        struct ifindex_ip4 ifip4;
+                        if_map.value = (uint64_t)&ifip4;
+                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                        if(!lookup){
+                            strcat(interfaces, ifip4.ifname);
+                            strcat(interfaces, ",");
+                        }
+                    }
+                }
+                if(strlen(interfaces)>2){
+                    printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+                }else{
+                    printf("%s%s\n",interfaces,"]");
+                }
                 *rule_count += 1;
             }
         }else{
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
-                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
             }else{
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
-                   dpts, "PASSTHRU", dcidr_block);
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s", "PASSTHRU", proto, scidr_block, dcidr_block,
+                dpts, "PASSTHRU", dcidr_block);
+            }
+            char interfaces[IF_NAMESIZE*28+32] = " [";
+            for(int i = 0; i < 28; i++){
+                if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                    if_key = i;
+                    struct ifindex_ip4 ifip4;
+                    if_map.value = (uint64_t)&ifip4;
+                    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                    if(!lookup){
+                        strcat(interfaces, ifip4.ifname);
+                        strcat(interfaces, ",");
+                    }
+                }
+            }
+            if(strlen(interfaces)>2){
+                printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+            }else{
+                printf("%s%s\n",interfaces,"]");
             }
             *rule_count += 1;
         }
@@ -847,8 +918,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -874,8 +945,8 @@ void map_list()
                 print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
                 printf("Rule Count: %d\n", rule_count);
                 if(x == 0){
-                    printf("\n%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+                    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
                 }
             }
         }
@@ -950,8 +1021,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     while (true)
     {

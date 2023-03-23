@@ -606,24 +606,32 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 if(tcph->syn  && tcph->ack){
                     tstate->ack =1;
                     tstate->tstamp = tstamp;
-                    bpf_printk("got syn-ack from 0x%X :%d\n" ,bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                    if(local_diag->verbose){
+                        bpf_printk("got syn-ack from 0x%X :%d\n" ,bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                    }
                     return TC_ACT_OK;
                 }
                 else if(tcph->fin){
                     if(tstate->est){
                         tstate->tstamp = tstamp;
                         tstate->fin = 1;
-                        bpf_printk("Received fin from Server 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        if(local_diag->verbose){
+                            bpf_printk("Received fin from Server 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        }
                         return TC_ACT_OK;
                     }
                 }
                 else if(tcph->rst){
                     if(tstate->est){
                         del_tcp(tcp_state_key);
-                        bpf_printk("Received rst from Server 0x%X :%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        if(local_diag->verbose){
+                            bpf_printk("Received rst from Server 0x%X :%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        }
                         tstate = get_tcp(tcp_state_key);
                         if(!tstate){
-                            bpf_printk("removed tcp state: 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                            if(local_diag->verbose){
+                                bpf_printk("removed tcp state: 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                            }
                         }
                         return TC_ACT_OK;
                     }
@@ -664,12 +672,17 @@ int bpf_sk_splice(struct __sk_buff *skb){
             unsigned long long tstamp = bpf_ktime_get_ns();
             struct udp_state *ustate = get_udp(udp_state_key);
             if(ustate){
+                /*if udp outbound state has been up for 30 seconds without traffic remove it from hashmap*/
                 if(tstamp > (ustate->tstamp + 30000000000)){
-                    bpf_printk("udp inbound matched expired state from 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                    if(local_diag->verbose){
+                        bpf_printk("udp inbound matched expired state from 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                    }
                     del_udp(udp_state_key);
                     ustate = get_udp(udp_state_key);
                     if(!ustate){
-                        bpf_printk("expired udp state removed from 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        if(local_diag->verbose){
+                            bpf_printk("expired udp state removed from 0x%X:%d\n", bpf_ntohl(tuple->ipv4.saddr), bpf_ntohs(tuple->ipv4.sport));
+                        }
                     }
                 }
                 else{
