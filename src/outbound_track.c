@@ -76,7 +76,7 @@ struct {
     __uint(id, BPF_MAP_ID_DIAG_MAP);
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct diag_ip4));
-    __uint(max_entries, 50);
+    __uint(max_entries, 28);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } diag_map SEC(".maps");
 

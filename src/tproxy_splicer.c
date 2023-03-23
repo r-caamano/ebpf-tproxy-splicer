@@ -33,30 +33,30 @@
 #include <linux/if.h>
 #include <stdio.h>
 
-#define BPF_MAP_ID_TPROXY  1
-#define BPF_MAP_ID_IFINDEX_IP  2
-#define BPF_MAP_ID_PROG_MAP 3
-#define BPF_MAP_ID_MATCHED_KEY 4
-#define BPF_MAP_ID_DIAG_MAP 5
-#define BPF_MAP_ID_TCP_MAP 6
-#define BPF_MAP_ID_UDP_MAP 7
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
-#define MAX_TABLE_SIZE  65536 //needs to match in userspace
+#define BPF_MAP_ID_TPROXY       1
+#define BPF_MAP_ID_IFINDEX_IP   2
+#define BPF_MAP_ID_PROG_MAP     3
+#define BPF_MAP_ID_MATCHED_KEY  4
+#define BPF_MAP_ID_DIAG_MAP     5
+#define BPF_MAP_ID_TCP_MAP      6
+#define BPF_MAP_ID_UDP_MAP      7
+#define BPF_MAX_ENTRIES         100 //MAX # PREFIXES
+#define MAX_INDEX_ENTRIES       100 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_TABLE_SIZE          65536 //needs to match in userspace
 #define GENEVE_UDP_PORT         6081
 #define GENEVE_VER              0
 #define AWS_GNV_HDR_OPT_LEN     32 // Bytes
 #define AWS_GNV_HDR_LEN         40 // Bytes
 #define MATCHED_KEY_DEPTH       3
 #define MATCHED_INT_DEPTH       50
-
+#define MAX_IF_LIST_ENTRIES     3
 
 
 struct tproxy_port_mapping {
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    bool if_list[28];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple {
@@ -176,7 +176,7 @@ struct {
     __uint(id, BPF_MAP_ID_DIAG_MAP);
     __uint(key_size, sizeof(uint32_t));
     __uint(value_size, sizeof(struct diag_ip4));
-    __uint(max_entries, 50);
+    __uint(max_entries, 28);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } diag_map SEC(".maps");
 
@@ -1069,9 +1069,6 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
                      if(local_diag->verbose){
                         bpf_printk("%s",local_ip4->ifname);
-                        if(skb->ifindex <= 27){
-                             bpf_printk("interface in rule:%d\n",tproxy->port_mapping[port_key].if_list[skb->ifindex]);
-                        }
                         bpf_printk("source_ip = 0x%X",bpf_ntohl(tuple->ipv4.saddr));
                         bpf_printk("dest_ip = 0x%X",bpf_ntohl(tuple->ipv4.daddr));
                         bpf_printk("protocol_id = %d",key.protocol);
@@ -1080,7 +1077,8 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     }
                     /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                     the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
-                    if(!local_diag->per_interface || ((skb->ifindex <= 27) && tproxy->port_mapping[port_key].if_list[skb->ifindex])){
+                    if(!local_diag->per_interface || (tproxy->port_mapping[port_key].if_list[0] == skb->ifindex) || 
+                    (tproxy->port_mapping[port_key].if_list[1] == skb->ifindex) || (tproxy->port_mapping[port_key].if_list[2] == skb->ifindex)){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
                             return TC_ACT_OK;
                         }

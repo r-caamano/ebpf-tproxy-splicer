@@ -42,9 +42,10 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
-#define MAX_TABLE_SIZE 65536 // PORT MApping table size
+#define BPF_MAX_ENTRIES     100 //MAX # PREFIXES
+#define MAX_INDEX_ENTRIES   100 // MAX port ranges per prefix
+#define MAX_TABLE_SIZE      65536 // PORT MApping table size
+#define MAX_IF_LIST_ENTRIES 3
 
 static bool add = false;
 static bool delete = false;
@@ -83,7 +84,8 @@ static char *echo_interface;
 static char *verbose_interface;
 static char *prefix_interface;
 const char *argp_program_version = "0.2.6";
-static bool if_list[28];
+static __u8 if_list[MAX_IF_LIST_ENTRIES];
+int ifcount = 0;
 int get_key_count();
 
 struct ifindex_ip4
@@ -103,7 +105,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
-    bool if_list[28];
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
@@ -359,10 +361,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
                 dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                char interfaces[IF_NAMESIZE*28+32] = "";
-                for(int i = 0; i < 28; i++){
+                char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+                for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
                     if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
-                        if_key = i;
+                        if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
                         struct ifindex_ip4 ifip4;
                         if_map.value = (uint64_t)&ifip4;
                         int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -383,10 +385,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0){
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s ", "PASSTHRU", proto, scidr_block, dcidr_block,
                 dpts, "PASSTHRU", dcidr_block);
-                char interfaces[IF_NAMESIZE*28+32] = "";
-                for(int i = 0; i < 28; i++){
-                    if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
-                        if_key = i;
+                char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+                for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
+                    if(tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                        if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
                         struct ifindex_ip4 ifip4;
                         if_map.value = (uint64_t)&ifip4;
                         int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -411,10 +413,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s", "PASSTHRU", proto, scidr_block, dcidr_block,
                 dpts, "PASSTHRU", dcidr_block);
             }
-            char interfaces[IF_NAMESIZE*28+32] = "";
-            for(int i = 0; i < 28; i++){
+            char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+            for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
                 if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
-                    if_key = i;
+                    if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
                     struct ifindex_ip4 ifip4;
                     if_map.value = (uint64_t)&ifip4;
                     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
@@ -674,7 +676,7 @@ void map_insert()
         {}
     };
     if(interface){
-        for(int x = 0; x < 28; x++){
+        for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
             port_mapping.if_list[x] = if_list[x];
         } 
     }
@@ -1100,9 +1102,15 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         interface = true;
         int idx = 0;
         get_index(arg, &idx);
-        if(idx < 28){
-            if_list[idx] = true;
+        if(ifcount < MAX_IF_LIST_ENTRIES){
+            if((idx > 0) && (idx < 28) ){
+                if_list[ifcount] = idx;
+            }
+        }else{
+            printf("A rule can be assigned to a maximum of %d interfaces\n", MAX_IF_LIST_ENTRIES);
+            exit(1);
         }
+        ifcount++;
         break;
     case 'P':
         if (!strlen(arg))
