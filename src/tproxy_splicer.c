@@ -37,7 +37,7 @@
 #define BPF_MAP_ID_IFINDEX_IP  2
 #define BPF_MAP_ID_PROG_MAP 3
 #define BPF_MAP_ID_MATCHED_KEY 4
-#define BPF_MAP_ID_ICMP_MAP 5
+#define BPF_MAP_ID_DIAG_MAP 5
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
 #endif
@@ -100,9 +100,10 @@ struct ifindex_ip4 {
     char ifname[IFNAMSIZ];
 };
 
-/*value to icmp_map*/
-struct icmp_ip4 {
+/*value to diag_map*/
+struct diag_ip4 {
     bool echo;
+    bool verbose;
 };
 
 /*bpf program map*/
@@ -144,15 +145,15 @@ struct {
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } ifindex_ip_map SEC(".maps");
 
-//map to keep status of icmp rules
+//map to keep status of diagnostic rules
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(id, BPF_MAP_ID_ICMP_MAP);
+    __uint(id, BPF_MAP_ID_DIAG_MAP);
     __uint(key_size, sizeof(uint32_t));
-    __uint(value_size, sizeof(struct icmp_ip4));
+    __uint(value_size, sizeof(struct diag_ip4));
     __uint(max_entries, 50);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-} icmp_map SEC(".maps");
+} diag_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
@@ -205,11 +206,11 @@ static inline struct ifindex_ip4 *get_local_ip4(__u32 key){
 	return ifip4;
 }
 
-static inline struct icmp_ip4 *get_icmp_ip4(__u32 key){
-    struct icmp_ip4 *if_icmp;
-    if_icmp = bpf_map_lookup_elem(&icmp_map, &key);
+static inline struct diag_ip4 *get_diag_ip4(__u32 key){
+    struct diag_ip4 *if_diag;
+    if_diag = bpf_map_lookup_elem(&diag_map, &key);
 
-	return if_icmp;
+	return if_diag;
 }
 
 /*function to update the ifindex_ip_map locally from ebpf possible
@@ -256,7 +257,7 @@ static inline void clear_match_tracker(__u32 key){
 * from the combined IP SA|DA and the TCP/UDP SP|DP. 
 */
 static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
-    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp){
+    __u16 eth_proto, bool *ipv4, bool *ipv6, bool *udp, bool *tcp, bool *arp, bool *icmp, struct diag_ip4 *local_diag){
     struct bpf_sock_tuple *result;
     __u8 proto = 0;
     int ret;
@@ -282,7 +283,9 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
         
         /* ensure ip header is in packet bounds */
         if ((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-            bpf_printk("header too big");
+            if(local_diag->verbose){
+                bpf_printk("header too big");
+            }
             return NULL;
 		}
         /* ip options not allowed */
@@ -297,29 +300,37 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
             /* check outter ip header */
             struct udphdr *udph = (struct udphdr *)(skb->data + nh_off + sizeof(struct iphdr));
             if ((unsigned long)(udph + 1) > (unsigned long)skb->data_end){
-                bpf_printk("udp header is too big");
+                if(local_diag->verbose){
+                    bpf_printk("udp header is too big");
+                }
                 return NULL;
             }
 
             /* If geneve port 6081, then do geneve header verification */
             if (bpf_ntohs(udph->dest) == GENEVE_UDP_PORT){
-                //bpf_printk("GENEVE MATCH FOUND ON DPORT = %d", bpf_ntohs(udph->dest));
-                //bpf_printk("UDP PAYLOAD LENGTH = %d", bpf_ntohs(udph->len));
-
+                if(local_diag->verbose){
+                    bpf_printk("GENEVE MATCH FOUND ON DPORT = %d", bpf_ntohs(udph->dest));
+                    bpf_printk("UDP PAYLOAD LENGTH = %d", bpf_ntohs(udph->len));
+                }
                 /* read receive geneve version and header length */
                 __u8 *genhdr = (void *)(unsigned long)(skb->data + nh_off + sizeof(struct iphdr) + sizeof(struct udphdr));
                 if ((unsigned long)(genhdr + 1) > (unsigned long)skb->data_end){
-                    bpf_printk("geneve header is too big");
+                    if(local_diag->verbose){
+                        bpf_printk("geneve header is too big");
+                    }
                     return NULL;
                 }
                 int gen_ver  = genhdr[0] & 0xC0 >> 6;
                 int gen_hdr_len = genhdr[0] & 0x3F;
-                //bpf_printk("Received Geneve version is %d", gen_ver);
-                //bpf_printk("Received Geneve header length is %d bytes", gen_hdr_len * 4);
-
+                if(local_diag->verbose){
+                    bpf_printk("Received Geneve version is %d", gen_ver);
+                    bpf_printk("Received Geneve header length is %d bytes", gen_hdr_len * 4);
+                }
                 /* if the length is not equal to 32 bytes and version 0 */
                 if ((gen_hdr_len != AWS_GNV_HDR_OPT_LEN / 4) || (gen_ver != GENEVE_VER)){
-                    //bpf_printk("Geneve header length:version error %d:%d", gen_hdr_len * 4, gen_ver);
+                    if(local_diag->verbose){
+                        bpf_printk("Geneve header length:version error %d:%d", gen_hdr_len * 4, gen_ver);
+                    }
                     return NULL;
                 }
 
@@ -327,18 +338,26 @@ static struct bpf_sock_tuple *get_tuple(struct __sk_buff *skb, __u64 nh_off,
                 //bpf_printk("SKB DATA LENGTH =%d", skb->len);
                 ret = bpf_skb_adjust_room(skb, -68, BPF_ADJ_ROOM_MAC, 0);
                 if (ret) {
-                    //bpf_printk("error calling skb adjust room.");
+                    if(local_diag->verbose){
+                        bpf_printk("error calling skb adjust room.");
+                    }
                     return NULL;
                 }
-                //bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
+                if(local_diag->verbose){
+                    bpf_printk("SKB DATA LENGTH AFTER=%d", skb->len);
+                }
                 /* Initialize iph for after popping outer */
                 iph = (struct iphdr *)(skb->data + nh_off);
                 if((unsigned long)(iph + 1) > (unsigned long)skb->data_end){
-                    //bpf_printk("header too big");
+                    if(local_diag->verbose){
+                        bpf_printk("IP header too big");
+                    }
                     return NULL;
                 }
                 proto = iph->protocol;
-                //bpf_printk("INNER Protocol = %d", proto);
+                if(local_diag->verbose){
+                    bpf_printk("INNER Protocol = %d", proto);
+                }
             }
             /* set udp to true if inner is udp, and let all other inner protos to the next check point */
             if (proto == IPPROTO_UDP) {
@@ -401,6 +420,16 @@ int bpf_sk_splice(struct __sk_buff *skb){
     bool arp=false;
     bool icmp=false;
     int ret;
+    
+    /*look up attached interface inbound diag status*/
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    if(!local_diag){
+        if(skb->ingress_ifindex == 1){
+            return TC_ACT_OK;
+        }else{
+            return TC_ACT_SHOT;
+        }
+    }
 
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
@@ -410,13 +439,10 @@ int bpf_sk_splice(struct __sk_buff *skb){
 	}
 
     /* check if incomming packet is a UDP or TCP tuple */
-    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp);
+    tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp, &icmp, local_diag);
 
     /*look up attached interface IP address*/
     struct ifindex_ip4 *local_ip4 = get_local_ip4(skb->ingress_ifindex);
-
-    /*look up attached interface inbound icmp echo status*/
-    struct icmp_ip4 *local_icmp = get_icmp_ip4(skb->ingress_ifindex);
 
     /* if not tuple forward ARP and drop all other traffic */
     if (!tuple){
@@ -436,7 +462,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
                 return TC_ACT_SHOT;
             }
             else if((icmph->type == 8) && (icmph->code == 0)){
-                if(local_icmp && local_icmp->echo){
+                if(local_diag && local_diag->echo){
                     return TC_ACT_OK;
                 }
                 else{
@@ -829,6 +855,15 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     /* find ethernet header from skb->data pointer */
     struct ethhdr *eth = (struct ethhdr *)(unsigned long)(skb->data);
     struct iphdr *iph = (struct iphdr *)(skb->data + sizeof(*eth));
+     /*look up attached interface inbound diag status*/
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    if(!local_diag){
+        if(skb->ingress_ifindex == 1){
+            return TC_ACT_OK;
+        }else{
+            return TC_ACT_SHOT;
+        }
+    }
     tuple = (struct bpf_sock_tuple *)(void*)(long)&iph->saddr;
     //tuple = get_tuple(skb, sizeof(*eth), eth->h_proto, &ipv4,&ipv6, &udp, &tcp, &arp);
     if(!tuple){
@@ -870,12 +905,14 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                 
                 if ((bpf_ntohs(tuple->ipv4.dport) >= bpf_ntohs(tproxy->port_mapping[port_key].low_port))
                 && (bpf_ntohs(tuple->ipv4.dport) <= bpf_ntohs(tproxy->port_mapping[port_key].high_port))) {
-                    bpf_printk("%s",local_ip4->ifname);
-                    bpf_printk("source_ip = 0x%X",bpf_ntohl(tuple->ipv4.saddr));
-                    bpf_printk("dest_ip = 0x%X",bpf_ntohl(tuple->ipv4.daddr));
-                    bpf_printk("protocol_id = %d",key.protocol);
-                    bpf_printk("tproxy_mapping->%d to %d\n",bpf_ntohs(tuple->ipv4.dport),
-                    bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port));
+                    if(local_diag->verbose){
+                        bpf_printk("%s",local_ip4->ifname);
+                        bpf_printk("source_ip = 0x%X",bpf_ntohl(tuple->ipv4.saddr));
+                        bpf_printk("dest_ip = 0x%X",bpf_ntohl(tuple->ipv4.daddr));
+                        bpf_printk("protocol_id = %d",key.protocol);
+                        bpf_printk("tproxy_mapping->%d to %d\n",bpf_ntohs(tuple->ipv4.dport),
+                        bpf_ntohs(tproxy->port_mapping[port_key].tproxy_port));
+                    }
                     if(tproxy->port_mapping[port_key].tproxy_port == 0){
                         return TC_ACT_OK;
                     }

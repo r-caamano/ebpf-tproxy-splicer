@@ -84,24 +84,56 @@ function update_map_local()
 {
     # Save full path of map update into a variable
     if [ -f "$etables" ]; then
-        # Get Ziti Fabric Port/Transport
-        ZITI_FPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $3}')
-        ZITI_FTRANSPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $1}')
-        if [ "$ZITI_FTRANSPORT" == "tls" ]; then
-            $etables -I -c $LANIP -m 32 -l $ZITI_FPORT -h $ZITI_FPORT -t 0 -p tcp
+        # FW Ziti Fabric Rules based on router config
+        ZT_FPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $3}')
+        ZT_FTRANSPORT=$(cat $router_config_file |yq '.link.listeners[] | select(.binding == "transport").advertise' |awk -v FS=':' '{print $1}')
+        if [[ -n $ZT_FPORT ]]; then
+            ZT_F_RULES=$(sudo ufw status numbered | jc --ufw -p | jq -r --argjson PORT "$ZT_FPORT" '.rules | map(select(.to_ports == [$PORT]))')
+            if [ "$ZT_FTRANSPORT" == "tls" ] && [[ -n $ZT_F_RULES ]]; then
+                for rule in $(echo "${ZT_F_RULES}" | jq -r '.[] | @base64'); do
+                    _jq() {
+                        echo ${rule} | base64 --decode | jq -r ${1}
+                    }
+                    $etables -I -c $LANIP -m 32 -o $(_jq '.from_ip') -n $(_jq '.from_ip_prefix') -l $ZT_FPORT -h $ZT_FPORT -t 0 -p tcp
+                done
+            fi
         fi
-        # Get Ziti Client Port/Transport
-        ZITI_CPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $3}')
-        ZITI_CTRANSPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $1}')
-        if [ "$ZITI_CTRANSPORT" == "tls" ]; then
-            $etables -I -c $LANIP -m 32 -l $ZITI_CPORT -h $ZITI_CPORT -t 0 -p tcp
+        # FW Ziti Client Rules based on router config
+        ZT_CPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $3}')
+        ZT_CTRANSPORT=$(cat $router_config_file |yq '.listeners[] | select(.binding == "edge").address' |awk -v FS=':' '{print $1}')
+        if [[ -n $ZT_CPORT ]]; then
+            ZT_C_RULES=$(sudo ufw status numbered | jc --ufw -p | jq -r --argjson PORT "$ZT_CPORT" '.rules | map(select(.to_ports == [$PORT]))')
+            if [ "$ZT_CTRANSPORT" == "tls" ] && [[ -n $ZT_C_RULES ]]; then
+                for rule in $(echo "${ZT_C_RULES}" | jq -r '.[] | @base64'); do
+                    _jq() {
+                        echo ${rule} | base64 --decode | jq -r ${1}
+                    }
+                    $etables -I -c $LANIP -m 32 -o $(_jq '.from_ip') -n $(_jq '.from_ip_prefix') -l $ZT_CPORT -h $ZT_CPORT -t 0 -p tcp
+                done
+            fi
         fi
-        # DNS
-        $etables -I -c $LANIP -m 32 -l 53 -h 53 -t 0 -p udp
-        # Get Health-Check Port
-        ZITI_HCPORT=$(cat $router_config_file |yq '.web[] | select(.name == "health-check").bindPoints[].address' | awk -v FS=':' '{print $2}')
-        if [ "$ZITI_HCPORT" ]; then
-            $etables -I -c $LANIP -m 32 -l $ZITI_HCPORT -h $ZITI_HCPORT -t 0 -p tcp
+        # FW DNS Rules based on UFW Configuration
+        DNS_RULES=$(sudo ufw status numbered | jc --ufw -p | jq -r '.rules | map(select(.to_ports == [53]))')
+        if [[ -n $DNS_RULES ]]; then
+            for rule in $(echo "${DNS_RULES}" | jq -r '.[] | @base64'); do
+                _jq() {
+                    echo ${rule} | base64 --decode | jq -r ${1}
+                }
+                $etables -I -c $LANIP -m 32 -o $(_jq '.from_ip') -n $(_jq '.from_ip_prefix') -l 53 -h 53 -t 0 -p $(_jq '.to_transport')
+            done
+        fi
+        # FW Health-Check Rules for HC Port read from router config
+        ZT_HCPORT=$(cat $router_config_file |yq '.web[] | select(.name == "health-check").bindPoints[].address' | awk -v FS=':' '{print $2}')
+        if [[ -n $ZT_HCPORT ]]; then
+            ZT_HC_RULES=$(sudo ufw status numbered | jc --ufw -p | jq -r --argjson PORT "$ZT_HCPORT" '.rules | map(select(.to_ports == [$PORT]))')
+            if [[ -n $ZT_HC_RULES ]]; then
+                for rule in $(echo "${ZT_HC_RULES}" | jq -r '.[] | @base64'); do
+                    _jq() {
+                        echo ${rule} | base64 --decode | jq -r ${1}
+                    }
+                    $etables -I -c $LANIP -m 32 -o $(_jq '.from_ip') -n $(_jq '.from_ip_prefix') -l $ZT_HCPORT -h $ZT_HCPORT -t 0 -p tcp
+                done
+            fi
         fi
         # invoke function to update ingress fw rules parsed from user file
         update_map_user
@@ -255,7 +287,7 @@ if [ -f "$router_config_file" ]; then
                         /usr/bin/rm $ebpf_map_home/ifindex_ip_map
                         /usr/bin/rm $ebpf_map_home/matched_map
                         /usr/bin/rm $ebpf_map_home/prog_map
-                        /usr/bin/rm $ebpf_map_home/icmp_map
+                        /usr/bin/rm $ebpf_map_home/diag_map
                         # delete ufw rule associated with ebpf
                         ufw_rule_num=$(sudo ufw status numbered | jc --ufw -p | jq -r --arg LANIF "$LANIF" '.rules[] | select(.to_interface == $LANIF).index')
                         while [[ $ufw_rule_num ]]; do

@@ -4,9 +4,19 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [0.2.8] - 2023-03-20
+
+### Added
+
+- added -v, --verbose <ifname> option to enable and disable trace output.  -d --disable when added disables verbose mode.  default is disabled.
+
+### Changed
+
+- Updated the logic for the local fw rules in the lifecycle script; included source address in all rules as configured by the ufw firewall.
+
 ## [0.2.7] - 2023-03-15
 
-## Fixed
+### Fixed
 
 - Updated the router service file with the single binary router run command
 - Updated the ufw rule deletion logic, when diverter-disable is invoked
