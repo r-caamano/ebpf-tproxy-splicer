@@ -359,7 +359,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
                 dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                char interfaces[IF_NAMESIZE*28+32] = " [";
+                char interfaces[IF_NAMESIZE*28+32] = "";
                 for(int i = 0; i < 28; i++){
                     if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
                         if_key = i;
@@ -372,10 +372,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                         }
                     }
                 }
-                if(strlen(interfaces)>2){
-                    printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+                if(strlen(interfaces)){
+                    printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
                 }else{
-                    printf("%s%s\n",interfaces,"]");
+                    printf("%s\n","[]");
                 }
                 *rule_count += 1;   
             }
@@ -383,7 +383,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0){
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s ", "PASSTHRU", proto, scidr_block, dcidr_block,
                 dpts, "PASSTHRU", dcidr_block);
-                char interfaces[IF_NAMESIZE*28+32] = " [";
+                char interfaces[IF_NAMESIZE*28+32] = "";
                 for(int i = 0; i < 28; i++){
                     if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
                         if_key = i;
@@ -396,12 +396,12 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                         }
                     }
                 }
-                if(strlen(interfaces)>2){
-                    printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+                if(strlen(interfaces)){
+                    printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
                 }else{
-                    printf("%s%s\n",interfaces,"]");
+                    printf("%s\n","[]");
                 }
-                *rule_count += 1;
+                *rule_count += 1;   
             }
         }else{
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
@@ -411,7 +411,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s", "PASSTHRU", proto, scidr_block, dcidr_block,
                 dpts, "PASSTHRU", dcidr_block);
             }
-            char interfaces[IF_NAMESIZE*28+32] = " [";
+            char interfaces[IF_NAMESIZE*28+32] = "";
             for(int i = 0; i < 28; i++){
                 if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
                     if_key = i;
@@ -424,10 +424,10 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
                     }
                 }
             }
-            if(strlen(interfaces)>2){
-                printf("%.*s%s\n",(int)(strlen(interfaces)-1),interfaces,"]");
+            if(strlen(interfaces)){
+                printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
             }else{
-                printf("%s%s\n",interfaces,"]");
+                printf("%s\n","[]");
             }
             *rule_count += 1;
         }
