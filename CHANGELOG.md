@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file. The format 
 
 ---
 
+## [0.2.9] - 2023-03-20
+
+### Fixed
+
+- fixed etables insert performance issue when inserting large numbers of services. 
+
 ## [0.2.8] - 2023-03-20
 
 ### Added

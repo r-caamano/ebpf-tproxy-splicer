@@ -38,6 +38,7 @@
 #define BPF_MAP_ID_PROG_MAP 3
 #define BPF_MAP_ID_MATCHED_KEY 4
 #define BPF_MAP_ID_DIAG_MAP 5
+#define BPF_MAP_ID_TUPLE_COUNT_MAP 6
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
 #endif
@@ -154,6 +155,16 @@ struct {
     __uint(max_entries, 50);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } diag_map SEC(".maps");
+
+//map to keep track of total entries in zt_tproxy_map
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(id, BPF_MAP_ID_TUPLE_COUNT_MAP);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tuple_count_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
