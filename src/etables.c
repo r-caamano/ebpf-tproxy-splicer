@@ -82,7 +82,6 @@ static char *echo_interface;
 static char *verbose_interface;
 const char *argp_program_version = "0.2.8";
 int get_key_count();
-int get_count();
 
 struct ifindex_ip4
 {
