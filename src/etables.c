@@ -65,6 +65,7 @@ static bool passthru = false;
 static bool intercept = false;
 static bool echo = false;
 static bool verbose = false;
+static bool all_interface = false;
 static bool disable = false;
 static struct in_addr dcidr;
 static struct in_addr scidr;
@@ -514,6 +515,10 @@ bool interface_map()
             if_map.key = (uint64_t)&idx;
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
+            if(all_interface){
+                echo_interface = address->ifa_name;
+                verbose_interface = address->ifa_name;
+            }
             if(echo && !(idx == 1)){
                 if(!strcmp(echo_interface, address->ifa_name)){
                     set_diag(&idx);
@@ -1084,12 +1089,16 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'e':
         if (!strlen(arg))
         {
-            fprintf(stderr, "Interface name required as arg to -e, --icmp-echo: %s\n", arg);
+            fprintf(stderr, "Interface name  or all is required as arg to -e, --icmp-echo: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
         echo = true;
-        echo_interface = arg;
+        if(!strcmp("all",arg)){
+           all_interface = true;
+        }else{
+           echo_interface = arg;
+        }
         break;
     case 'd':
         disable = true;
@@ -1153,12 +1162,16 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'v':
         if (!strlen(arg))
         {
-            fprintf(stderr, "Interface name required as arg to -v, --verbose: %s\n", arg);
+            fprintf(stderr, "Interface name  or all is required as arg to -v, --verbose: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
         verbose = true;
-        verbose_interface = arg;
+        if(!strcmp("all",arg)){
+           all_interface = true;
+        }else{
+           verbose_interface = arg;
+        }
         break;
     default:
         return ARGP_ERR_UNKNOWN;
