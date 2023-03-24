@@ -42,9 +42,10 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define BPF_MAX_ENTRIES    100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES 100 // MAX port ranges per prefix
-#define MAX_TABLE_SIZE 65536 // PORT MApping table size
+#define BPF_MAX_ENTRIES     100 //MAX # PREFIXES
+#define MAX_INDEX_ENTRIES   100 // MAX port ranges per prefix
+#define MAX_TABLE_SIZE      65536 // PORT MApping table size
+#define MAX_IF_LIST_ENTRIES 3
 
 static bool add = false;
 static bool delete = false;
@@ -62,7 +63,11 @@ static bool route = false;
 static bool passthru = false;
 static bool intercept = false;
 static bool echo = false;
+static bool verbose = false;
+static bool per_interface = false;
+static bool interface = false;
 static bool disable = false;
+static bool all_interface = false;
 static struct in_addr dcidr;
 static struct in_addr scidr;
 static unsigned short dplen;
@@ -76,7 +81,11 @@ static unsigned short protocol;
 static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "map_update -- ebpf mapping tool";
 static char *echo_interface;
+static char *verbose_interface;
+static char *prefix_interface;
 const char *argp_program_version = "0.2.6";
+static __u8 if_list[MAX_IF_LIST_ENTRIES];
+int ifcount = 0;
 int get_key_count();
 
 struct ifindex_ip4
@@ -85,8 +94,10 @@ struct ifindex_ip4
     char ifname[IF_NAMESIZE];
 };
 
-struct icmp_ip4 {
+struct diag_ip4 {
     bool echo;
+    bool verbose;
+    bool per_interface;
 };
 
 struct tproxy_port_mapping
@@ -94,6 +105,7 @@ struct tproxy_port_mapping
     __u16 low_port;
     __u16 high_port;
     __u16 tproxy_port;
+    __u8 if_list[MAX_IF_LIST_ENTRIES];
 };
 
 struct tproxy_tuple
@@ -302,6 +314,24 @@ void remove_index(__u16 index, struct tproxy_tuple *tuple)
 
 void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_count)
 {
+    union bpf_attr if_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+    exit(1);
+    }
+    uint32_t if_key = 0;
+    if_map.map_fd = if_fd;
+    if_map.key = (uint64_t)&if_key;
     char *proto;
     if (key->protocol == IPPROTO_UDP)
     {
@@ -322,31 +352,84 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
     char *scidr_block = malloc(19);
     sprintf(scidr_block, "%s/%d", sprefix, key->sprefix_len);
     char *dpts = malloc(17);
-
     int x = 0;
     for (; x < tuple->index_len; x++)
     {
         sprintf(dpts, "dpts=%d:%d", ntohs(tuple->port_mapping[tuple->index_table[x]].low_port),
             ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));       
         if(intercept && !passthru){
-           if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
-                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
-                *rule_count += 1;
-           }
+            if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
+                char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+                for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
+                    if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                        if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                        struct ifindex_ip4 ifip4;
+                        if_map.value = (uint64_t)&ifip4;
+                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                        if(!lookup){
+                            strcat(interfaces, ifip4.ifname);
+                            strcat(interfaces, ",");
+                        }
+                    }
+                }
+                if(strlen(interfaces)){
+                    printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
+                }else{
+                    printf("%s\n","[]");
+                }
+                *rule_count += 1;   
+            }
         }else if(passthru && !intercept){
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) == 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
-                   dpts, "PASSTHRU", dcidr_block);
-                *rule_count += 1;
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s ", "PASSTHRU", proto, scidr_block, dcidr_block,
+                dpts, "PASSTHRU", dcidr_block);
+                char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+                for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
+                    if(tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                        if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                        struct ifindex_ip4 ifip4;
+                        if_map.value = (uint64_t)&ifip4;
+                        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                        if(!lookup){
+                            strcat(interfaces, ifip4.ifname);
+                            strcat(interfaces, ",");
+                        }
+                    }
+                }
+                if(strlen(interfaces)){
+                    printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
+                }else{
+                    printf("%s\n","[]");
+                }
+                *rule_count += 1;   
             }
         }else{
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d\n", "TPROXY", proto, scidr_block, dcidr_block,
-                   dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
             }else{
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s\n", "PASSTHRU", proto, scidr_block, dcidr_block,
-                   dpts, "PASSTHRU", dcidr_block);
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %s", "PASSTHRU", proto, scidr_block, dcidr_block,
+                dpts, "PASSTHRU", dcidr_block);
+            }
+            char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
+            for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
+                if( tuple->port_mapping[tuple->index_table[x]].if_list[i]){ 
+                    if_key = tuple->port_mapping[tuple->index_table[x]].if_list[i];
+                    struct ifindex_ip4 ifip4;
+                    if_map.value = (uint64_t)&ifip4;
+                    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &if_map, sizeof(if_map));
+                    if(!lookup){
+                        strcat(interfaces, ifip4.ifname);
+                        strcat(interfaces, ",");
+                    }
+                }
+            }
+            if(strlen(interfaces)){
+                printf("%s%.*s%s\n","[",(int)(strlen(interfaces)-1),interfaces,"]");
+            }else{
+                printf("%s\n","[]");
             }
             *rule_count += 1;
         }
@@ -371,48 +454,189 @@ void usage(char *message)
     fprintf(stderr, "       map_update -L\n");
     fprintf(stderr, "       map_update -L -i\n");
     fprintf(stderr, "       map_update -L -f\n");
+    fprintf(stderr, "       map_update -e <ifname>\n");
+    fprintf(stderr, "       map_update -e <ifname> -d\n");
+    fprintf(stderr, "       map_update -v <ifname>\n");
+    fprintf(stderr, "       etables -v <ifname> -d\n");
     fprintf(stderr, "       map_update -V\n");
     fprintf(stderr, "       map_update --help\n");
     exit(1);
 }
 
-bool set_echo(int *idx){
+bool set_diag(int *idx){
     /* create bpf_attr to store ifindex_ip_map */
-    union bpf_attr echo_map;
+    union bpf_attr diag_map;
     /*path to pinned ifindex_ip_map*/
-    const char *icmp_map_path = "/sys/fs/bpf/tc/globals/icmp_map";
+    const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
     /* open BPF ifindex_ip_map */
-    memset(&echo_map, 0, sizeof(echo_map));
+    memset(&diag_map, 0, sizeof(diag_map));
     /* set path name with location of map in filesystem */
-    echo_map.pathname = (uint64_t)icmp_map_path;
-    echo_map.bpf_fd = 0;
-    echo_map.file_flags = 0;
+    diag_map.pathname = (uint64_t)diag_map_path;
+    diag_map.bpf_fd = 0;
+    diag_map.file_flags = 0;
     /* make system call to get fd for map */
-    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &echo_map, sizeof(echo_map));
+    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &diag_map, sizeof(diag_map));
     if (icmp_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
-    echo_map.map_fd = icmp_fd;
-    struct icmp_ip4 if_icmp = {0};
-    if(!disable){
-        if_icmp.echo = true;
-    }
-    else{
-        if_icmp.echo = false;
-    }     
-    echo_map.key = (uint64_t)idx;
-    echo_map.flags = BPF_ANY;
-    echo_map.value = (uint64_t)&if_icmp;
-    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &echo_map, sizeof(echo_map));
+    diag_map.map_fd = icmp_fd;
+    struct diag_ip4 o_diag;
+    diag_map.key = (uint64_t)idx;
+    diag_map.flags = BPF_ANY;
+    diag_map.value = (uint64_t)&o_diag;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
+    if(lookup){
+        printf("Invalid Index\n");
+        close(icmp_fd);
+        return false;
+    }else{
+        if(echo){
+            if(!disable){
+                o_diag.echo = true;
+            }
+            else{
+                o_diag.echo = false;
+            }
+             printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
+        }
+        if(verbose){
+            if(!disable){
+                o_diag.verbose = true;
+            }
+            else{
+                o_diag.verbose = false;
+            }
+            printf("Set verbose to %d for %s\n", !disable, verbose_interface);
+        }
+        if(per_interface){
+            if(!disable){
+                o_diag.per_interface = true;
+            }
+            else{
+                o_diag.per_interface = false;
+            }
+            printf("Set per_interface rule aware to %d for %s\n", !disable, prefix_interface);
+        }
+    }  
+    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
     if (ret)
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
         close(icmp_fd);
         exit(1);
     }
+    close(icmp_fd);
     return true;
+}
+
+bool interface_diag()
+{
+    /* create bpf_attr to store ifindex_ip_map */
+    union bpf_attr if_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+    struct ifaddrs *addrs;
+
+    /* call function to get a linked list of interface structs from system */
+    if (getifaddrs(&addrs) == -1)
+    {
+        printf("can't get addrs");
+        exit(1);
+    }
+    struct ifaddrs *address = addrs;
+    /* open BPF ifindex_ip_map */
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    if_map.map_fd = if_fd;
+    int idx = 0;
+    /*
+     * traverse linked list of interfaces and for each non-loopback interface
+     *  populate the index into the map with ifindex as the key and ip address
+     *  as the value
+     */
+    int net_count = 0;
+    struct sockaddr_in *ipaddr;
+    in_addr_t ifip;
+    int ipcheck = 0;
+    bool create_route = true;
+    int lo_count = 0;
+    while (address)
+    {
+        if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
+        {
+            get_index(address->ifa_name, &idx);
+            if (strncmp(address->ifa_name, "lo", 2))
+            {
+                ipaddr = (struct sockaddr_in *)address->ifa_addr;
+                ifip = ipaddr->sin_addr.s_addr;
+                struct sockaddr_in *network_mask = (struct sockaddr_in *)address->ifa_netmask;
+                __u32 netmask = ntohl(network_mask->sin_addr.s_addr);
+                ipcheck = is_subset(ntohl(ifip), netmask, ntohl(dcidr.s_addr));
+                if(!ipcheck)
+                {
+                    create_route = false;
+                }
+            }
+            else
+            {
+               ifip = 0x0100007f;
+               lo_count++;
+            }
+            struct ifindex_ip4 ifip4 = {
+                ifip,
+                {0}};
+            sprintf(ifip4.ifname, "%s", address->ifa_name);
+            if_map.key = (uint64_t)&idx;
+            if_map.flags = BPF_ANY;
+            if_map.value = (uint64_t)&ifip4;
+            if(all_interface){
+                echo_interface = address->ifa_name;
+                verbose_interface = address->ifa_name;
+                prefix_interface = address->ifa_name;
+            }
+            if(echo && !(idx == 1)){
+                if(!strcmp(echo_interface, address->ifa_name)){
+                    set_diag(&idx);
+                }
+            }else if(echo && !strcmp(echo_interface,"lo") && (idx == 1) && lo_count == 1){
+                printf("icmp echo is always set to 1 for lo\n");
+            }
+            if(verbose && !((idx==1) && lo_count > 1)){
+                if(!strcmp(verbose_interface, address->ifa_name)){
+                    set_diag(&idx);
+                }
+            }
+            if(per_interface && !((idx==1) && lo_count > 1)){
+                if(!strcmp(prefix_interface, address->ifa_name)){
+                    set_diag(&idx);
+                }
+            }
+            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+            if (ret)
+            {
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                close(if_fd);
+                exit(1);
+            }
+        }
+        net_count++;
+        address = address->ifa_next;
+    }
+    close(if_fd);
+    freeifaddrs(addrs);
+    return create_route;
 }
 
 bool interface_map()
@@ -475,6 +699,7 @@ bool interface_map()
             else
             {
                ifip = 0x0100007f;
+               
             }
             struct ifindex_ip4 ifip4 = {
                 ifip,
@@ -483,13 +708,6 @@ bool interface_map()
             if_map.key = (uint64_t)&idx;
             if_map.flags = BPF_ANY;
             if_map.value = (uint64_t)&ifip4;
-            if(echo){
-                if(!strcmp(echo_interface, address->ifa_name)){
-                    if(set_echo(&idx)){
-                        printf("successfully changed icmp echo for %s to %d\n", address->ifa_name, !disable);
-                    }
-                }
-            }
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
             if (ret)
             {
@@ -539,8 +757,14 @@ void map_insert()
     struct tproxy_port_mapping port_mapping = {
         htons(low_port),
         htons(high_port),
-        htons(tproxy_port)
-        };
+        htons(tproxy_port),
+        {}
+    };
+    if(interface){
+        for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
+            port_mapping.if_list[x] = if_list[x];
+        } 
+    }
     /*
      * Check result of lookup if not 0 then create a new entery
      * else edit an existing entry
@@ -573,6 +797,39 @@ void map_insert()
             printf("memcpy failed");
             close(fd);
             exit(1);
+        }else{
+            union bpf_attr count_map;
+            /*path to pinned ifindex_ip_map*/
+            const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+            memset(&count_map, 0, sizeof(count_map));
+            /* set path name with location of map in filesystem */
+            count_map.pathname = (uint64_t)count_map_path;
+            count_map.bpf_fd = 0;
+            count_map.file_flags = 0;
+            /* make system call to get fd for map */
+            int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+            if (count_fd == -1)
+            {
+                printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                exit(1);
+            }
+            uint32_t count_key = 0;
+            uint32_t count_value = 0;
+            count_map.map_fd = count_fd;
+            count_map.key = (uint64_t)&count_key;
+            count_map.value = (uint64_t)&count_value;
+            int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+            if(!lookup){
+                count_value++;
+                count_map.flags = BPF_ANY;
+                int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
+                if (result)
+                {
+                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                }
+                
+            }
+            close(count_fd);
         }
 	    if(route && route_insert)
         {
@@ -661,7 +918,6 @@ void map_delete()
     if (lookup)
     {
         printf("MAP_DELETE_ELEM: %s\n", strerror(errno));
-
         exit(1);
     }
     else
@@ -704,6 +960,38 @@ void map_delete()
             }
             else
             {
+                union bpf_attr count_map;
+                /*path to pinned ifindex_ip_map*/
+                const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+                memset(&count_map, 0, sizeof(count_map));
+                /* set path name with location of map in filesystem */
+                count_map.pathname = (uint64_t)count_map_path;
+                count_map.bpf_fd = 0;
+                count_map.file_flags = 0;
+                /* make system call to get fd for map */
+                int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+                if (count_fd == -1)
+                {
+                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                    exit(1);
+                }
+                uint32_t count_key = 0;
+                uint32_t count_value = 0;
+                count_map.map_fd = count_fd;
+                count_map.key = (uint64_t)&count_key;
+                count_map.value = (uint64_t)&count_value;
+                int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+                if(!lookup){
+                    count_value--;
+                    count_map.flags = BPF_ANY;
+                    int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
+                    if (result)
+                    {
+                        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                    }
+                    
+                }
+                close(count_fd);
                 printf("Last Element: Hash Entry Deleted\n");
                 if(route && route_delete)
                 {
@@ -760,6 +1048,38 @@ void map_flush()
         map_delete_key(current_key);
     }
     close(fd);
+    union bpf_attr count_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+    memset(&count_map, 0, sizeof(count_map));
+    /* set path name with location of map in filesystem */
+    count_map.pathname = (uint64_t)count_map_path;
+    count_map.bpf_fd = 0;
+    count_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+    if (count_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    uint32_t count_key = 0;
+    uint32_t count_value = 0;
+    count_map.map_fd = count_fd;
+    count_map.key = (uint64_t)&count_key;
+    count_map.value = (uint64_t)&count_value;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+    if(!lookup){
+        count_value = 0;
+        count_map.flags = BPF_ANY;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }
+        
+    }
+    close(count_fd);
 }
 
 void map_list()
@@ -782,8 +1102,8 @@ void map_list()
     map.key = (uint64_t)&key;
     map.value = (uint64_t)&orule;
     int lookup = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     if (prot)
     {
@@ -809,8 +1129,8 @@ void map_list()
                 print_rule((struct tproxy_key *)map.key, &orule, &rule_count);
                 printf("Rule Count: %d\n", rule_count);
                 if(x == 0){
-                    printf("\n%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+                    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+                    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
                 }
             }
         }
@@ -821,46 +1141,32 @@ void map_list()
 
 int get_key_count()
 {
-    union bpf_attr map;
-    struct tproxy_key *key = NULL;
-    struct tproxy_key current_key;
-    struct tproxy_tuple orule;
-    // Open BPF zt_tproxy_map map
-    memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
-    map.bpf_fd = 0;
-    map.file_flags = 0;
-    int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
-    if (fd == -1)
+   union bpf_attr count_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+    memset(&count_map, 0, sizeof(count_map));
+    /* set path name with location of map in filesystem */
+    count_map.pathname = (uint64_t)count_map_path;
+    count_map.bpf_fd = 0;
+    count_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+    if (count_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
-    map.map_fd = fd;
-    map.key = (uint64_t)key;
-    map.value = (uint64_t)&orule;
-    int lookup = 0;
-    int ret = 0;
-    int key_count = 0;
-    while (true)
-    {
-        ret = syscall(__NR_bpf, BPF_MAP_GET_NEXT_KEY, &map, sizeof(map));
-        // printf("ret=%d\n",ret);
-        if (ret == -1)
-        {
-            return key_count;
-            break;
-        }
-        map.key = map.next_key;
-        current_key = *(struct tproxy_key *)map.key;
-        lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &map, sizeof(map));
-        if (!lookup)
-        {
-            key_count++;
-        }
-        map.key = (uint64_t)&current_key;
+    uint32_t count_key = 0;
+    uint32_t count_value = 0;
+    count_map.map_fd = count_fd;
+    count_map.key = (uint64_t)&count_key;
+    count_map.value = (uint64_t)&count_value;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+    if(!lookup){
+        return count_value;
     }
-    close(fd);
+    close(count_fd);
+    return 0;
 }
 
 void map_list_all()
@@ -885,8 +1191,8 @@ void map_list_all()
     map.value = (uint64_t)&orule;
     int lookup = 0;
     int ret = 0;
-    printf("%-8s\t%-3s\t%-20s\t%-32s%-17s\t\t\t\n", "target", "proto", "origin", "destination", "mapping:");
-    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\n");
+    printf("%-8s\t%-3s\t%-20s\t%-32s%-24s\t\t\t\t%-32s\n", "target", "proto", "origin", "destination", "mapping:", " interface list");
+    printf("--------\t-----\t-----------------\t------------------\t\t-------------------------------------------------------\t-----------------\n");
     int rule_count = 0;
     while (true)
     {
@@ -919,8 +1225,10 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
+    {"per-interace-rules", 'P', "", 0, "set interface to per interface rule aware", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
+    {"verbose", 'v', "", 0, "enable inbound icmp echo to interface", 0},
     {"disable", 'd', NULL, 0, "disabble associated icmp echo operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
@@ -932,6 +1240,7 @@ static struct argp_option options[] = {
     {"route", 'r', NULL, 0, "Add or Delete static ip/prefix for intercept dest to lo interface <optional insert/delete>", 0},
     {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
     {"passthrough", 'f', NULL, 0, "list passthrough rules <optional list>", 0},
+    {"interface", 'N', "", 0, "Interface <optional insert/delete>", 0},
     {0}};
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
@@ -951,6 +1260,41 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'L':
         list = true;
         break;
+    case 'N':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -P, --per-interface-rules: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        interface = true;
+        int idx = 0;
+        get_index(arg, &idx);
+        if(ifcount < MAX_IF_LIST_ENTRIES){
+            if((idx > 0) && (idx < 28) ){
+                if_list[ifcount] = idx;
+            }
+        }else{
+            printf("A rule can be assigned to a maximum of %d interfaces\n", MAX_IF_LIST_ENTRIES);
+            exit(1);
+        }
+        ifcount++;
+        break;
+    case 'P':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -P, --per-interface-rules: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        per_interface = true;
+        if(!strcmp("all",arg)){
+            all_interface = true;
+        }
+        else{
+            prefix_interface = arg;
+        }
+        break;
     case 'c':
         if (!inet_aton(arg, &dcidr))
         {
@@ -968,7 +1312,12 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             exit(1);
         }
         echo = true;
-        echo_interface = arg;
+        if(!strcmp("all",arg)){
+            all_interface = true;
+        }
+        else{
+            echo_interface = arg;
+        }
         break;
     case 'd':
         disable = true;
@@ -1029,6 +1378,21 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         tproxy_port = port2s(arg);
         tpt = true;
         break;
+    case 'v':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -v, --verbose: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        verbose = true;
+        if(!strcmp("all",arg)){
+            all_interface = true;
+        }
+        else{
+            verbose_interface = arg;
+        }
+        break;
     default:
         return ARGP_ERR_UNKNOWN;
     }
@@ -1041,13 +1405,20 @@ int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
-    if(disable && !echo){
-        usage("Missing argument -e, --icmp-echo");
+    if(interface && !(add || delete)){
+        usage("Missing argument -I, --insert");
     }
 
-    if(echo){
-        interface_map();
-        exit(0);
+    if((echo && verbose) || (echo && per_interface) || (echo && (add || delete || list || flush))){
+        usage("-e, --icmp-echo cannot be set as a part of combination call to map_update");
+    }
+
+    if((verbose && echo) || (verbose && per_interface) || (verbose && (add || delete || list || flush))){
+        usage("-v, --verbose cannot be set as a part of combination call to map_update");
+    }
+
+    if((per_interface && echo) || (per_interface && verbose) || (per_interface && (add || delete || list || flush))){
+        usage("-P, --per-interface-rules cannot be set as a part of combination call to map_update");
     }
 
     if((intercept || passthru) && !list){
@@ -1056,6 +1427,10 @@ int main(int argc, char **argv)
 
     if(route && (!add && !delete && !flush)){
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
+    }
+
+    if(disable && (!echo && !verbose && !per_interface)){
+        usage("Missing argument at least one of -e, -v, or -P");
     }
 
     if (add)
@@ -1170,6 +1545,15 @@ int main(int argc, char **argv)
             }
             map_list();
         }
+    }else if(verbose){
+        interface_diag();
+        exit(0);
+    }else if(echo){
+        interface_diag();
+        exit(0);
+    }else if(per_interface){
+        interface_diag();
+        exit(0);
     }
     else
     {

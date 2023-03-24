@@ -14,22 +14,51 @@ inserted by the map_update tool it will only allow ssh addressed to the IP addre
 eBPF program.  All other traffic must be configured as a service in an OpenZiti Controller which then informs the edge-router
 which traffic flows to accept. The open ziti edge-router then uses the map_update user space app to insert rules to
 allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: 
-https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.
+https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.  
 
-Note: While this program was written with OpenZiti edge-routers in mind it can be used to redirect incoming udp/tcp
-traffic to any application with a listening socket bound to the loopback IP. If you are testing without OpenZiti the
-Destination IP or Subnet must be bound to an existing interface on the system in order to intercept traffic. For
-external interface IP(s) this is taken care of.  If you want to intercept another IP that falls into the same range as
-the physical interface then you would need to add it as a secondary ip.  Subnets won't work for binding on the external
-interface it needs to be a host address. Subnets will work on the loopback however. OpenZiti binds intercept 
-addresses/prefixes to the "lo" interface i.e. sudo ip addr add 172.20.1.0/24 dev lo scope host. I've added similar
-functionality with the -r,--route optional argument. For safety reasons this will only add a IP/Prefix to the loopback
-if the destination ip/prefix does not fall within the subnet range of an external interface.
+A new addtion is firewall support for subtending devices for two interface scenarios i.e.
+external and trusted.
 
-The latest release allows for source filtering.  This comes at the cost of limiting the number of filters that a packet
-could match i.e.  if you have /32, /24, /16 and /8 rules all of which match the incomming packet from a source cidr / dest
-cidr but differing port rules then if the port match in the /8 rulte then the packet would be dropped since the
-program would never reach that search depth.
+    external inet <----> (ens33)[ebpf-router](ens37) <----> trusted clients
+
+    with tproxy-splicer.o applied ingress on ens33 and oubound_track.o applied egress on ens33 the router will
+    statefully track outbound udp and tcp connections on ens33 and allow the associated inbound traffic.  While
+    running in this mode it does not make sense to add ziti tproxy rules and is meant for running as a traditional fw.
+    As be for you can also create passthrough FW rules (set -t --tproxy-port to 0) which would also make sense in the mode for
+    specific internet initiated traffic you might want to allow in.
+
+    TCP:
+        If the tcp connections close gracefully then the entries will remove upon connection closure. 
+        if not then there is a 60 minute timeout that will remove the in active state if no traffic seen
+        in either direction.
+
+    UDP:
+        State will remain active as long as packets tuples matching SRCIP/SPORT/DSTIP/DPORT are seen in
+        either direction within 30 seconds.  If no packets seen in either dorection the state will expire.
+        If an external packet enters the interface after expire the entry will be deleted.  if an egress
+        packet fined a matching expired state it will return the state to active.
+
+    In order to support this per interface rule awareness was added which allows each port range within a prefix
+    to match a list of connected interfaces.  On a per interface basis you can decide to honor that list or not via
+    a per-prefix-rules setting in the following manner via the map_update utility
+    
+    singly:
+    ```
+    sudo map_update -P <ifname>
+    ```
+    or 
+
+    all interfaces:
+    ```
+    sudo map_update -P all
+    ```
+
+    In order to assign 1 to 3 interfaces to a rule you would use the new -N option in combination with the -I i.e.
+    to associate the rule to end37 and lo:
+
+    ```
+    sudo map_update -I -c 172.16.31.0 -m 24 -l 443 -h 443 -t 44000 -p tcp -N ens37 -N lo
+    ```
 
 ## Build
 ---
@@ -43,6 +72,7 @@ program would never reach that search depth.
 ```bash   
 sudo tc qdisc add dev <interface name>  clsact
 sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
+sudo tc filter add dev <interface name> egress bpf da obj outbound_track.o sec action  //optional only if firewalling subtending devices 
 sudo ufw allow in on <interface name> to any
 ```
 
@@ -107,6 +137,7 @@ sudo ./map_update -I -c 10.1.1.1 -m 32 -l 443 -h 443 -t 0 -p tcp
 Example: Monitor ebpf trace messages
 
 ```
+sudo map_update -v all
 sudo cat /sys/kernel/debug/tracing/trace_pipe
   
 <idle>-0       [007] dNs.. 167940.070727: bpf_trace_printk: ens33
@@ -142,18 +173,18 @@ Usage: ./map_update -L
 
 sudo ./map_update -L
 
-target     proto    origin              destination               mapping:
-------     -----    ---------------     ------------------        ---------------------------------------------------------
-TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381
-TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-TPROXY     udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381
-TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381
-PASSTHRU   udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24 
-PASSTHRU   udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32
-PASSTHRU   tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
-TPROXY     udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394
-PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32
+target     proto    origin              destination               mapping:                                                   interface list
+------     -----    ---------------     ------------------        --------------------------------------------------------- ----------------
+TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=22:22                TPROXY redirect 127.0.0.1:33381  [ens33,lo]
+TPROXY     tcp      0.0.0.0/0           10.0.0.16/28              dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+TPROXY     udp      0.0.0.0/0           172.20.1.0/24             dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=22:22                TPROXY redirect 127.0.0.1:33381  []
+TPROXY     tcp      0.0.0.0/0           172.16.1.0/24             dpts=30000:40000          TPROXY redirect 127.0.0.1:33381  []
+PASSTHRU   udp      0.0.0.0/0           192.168.3.0/24            dpts=5:7                  PASSTHRU to 192.168.3.0/24       []
+PASSTHRU   udp      10.1.1.1/32         192.168.100.100/32        dpts=50000:60000          PASSTHRU to 192.168.100.100/32   []
+PASSTHRU   tcp      10.230.40.1/32      192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
+TPROXY     udp      0.0.0.0/0           192.168.0.3/32            dpts=5000:10000           TPROXY redirect 127.0.0.1:59394  []
+PASSTHRU   tcp      0.0.0.0/0           192.168.100.100/32        dpts=60000:65535          PASSTHRU to 192.168.100.100/32   []
 ```
 Example: List rules in map for a given prefix and protocol
 ```bash
@@ -161,9 +192,9 @@ Example: List rules in map for a given prefix and protocol
   
 sudo map_update -L -c 192.168.100.100 -m 32 -p udp
   
-target     proto    origin           destination              mapping:
-------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
+target     proto    origin           destination              mapping:                                                  interface list
+------     -----    --------         ------------------       --------------------------------------------------------- ------------------    
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
 ``` 
 
 Example: List rules in map for a given prefix
@@ -172,10 +203,10 @@ Example: List rules in map for a given prefix
 
 sudo map_update -L -c 192.168.100.100 -m 32
 
-target     proto    origin           destination              mapping:
-------     -----    --------         ------------------       ---------------------------------------------------------
-PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32
-PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32
+target     proto    origin           destination              mapping:                                                  interface list
+------     -----    --------         ------------------       --------------------------------------------------------- -------------------
+PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
+PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32     []
 ```
 
 ## Additional Distro testing
