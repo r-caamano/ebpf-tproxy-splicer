@@ -613,8 +613,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
             tcp_state_key.dport = tuple->ipv4.sport;
 	        unsigned long long tstamp = bpf_ktime_get_ns();
             struct tcp_state *tstate = get_tcp(tcp_state_key);
-            /*check tcp state and timeout if greater than 15 minutes without traffic*/
-            if(tstate && (tstamp < (tstate->tstamp + 900000000000))){    
+            /*check tcp state and timeout if greater than 60 minutes without traffic*/
+            if(tstate && (tstamp < (tstate->tstamp + 3600000000000))){    
                 if(tcph->syn  && tcph->ack){
                     tstate->ack =1;
                     tstate->tstamp = tstamp;
