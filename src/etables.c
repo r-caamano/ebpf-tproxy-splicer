@@ -397,13 +397,13 @@ bool set_diag(int *idx){
     diag_map.bpf_fd = 0;
     diag_map.file_flags = 0;
     /* make system call to get fd for map */
-    int icmp_fd = syscall(__NR_bpf, BPF_OBJ_GET, &diag_map, sizeof(diag_map));
-    if (icmp_fd == -1)
+    int diag_fd = syscall(__NR_bpf, BPF_OBJ_GET, &diag_map, sizeof(diag_map));
+    if (diag_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
         exit(1);
     }
-    diag_map.map_fd = icmp_fd;
+    diag_map.map_fd = diag_fd;
     struct diag_ip4 o_diag;
     diag_map.key = (uint64_t)idx;
     diag_map.flags = BPF_ANY;
@@ -411,7 +411,7 @@ bool set_diag(int *idx){
     int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &diag_map, sizeof(diag_map));
     if(lookup){
         printf("Invalid Index\n");
-        close(icmp_fd);
+        close(diag_fd);
         return false;
     }else{
         if(echo){
@@ -437,10 +437,10 @@ bool set_diag(int *idx){
     if (ret)
     {
         printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-        close(icmp_fd);
+        close(diag_fd);
         exit(1);
     }
-    close(icmp_fd);
+    close(diag_fd);
     return true;
 }
 
