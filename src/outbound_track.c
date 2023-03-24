@@ -35,8 +35,8 @@
 #include <stdio.h>
 
 #define BPF_MAP_ID_DIAG_MAP 5
-#define BPF_MAP_ID_TCP_MAP 6
-#define BPF_MAP_ID_UDP_MAP 7
+#define BPF_MAP_ID_TCP_MAP 7
+#define BPF_MAP_ID_UDP_MAP 8
 #define MAX_INDEX_ENTRIES  100 //MAX port ranges per prefix need to match in user space apps 
 
 /*Key to tcp_map and udp_map*/

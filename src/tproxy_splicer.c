@@ -33,23 +33,25 @@
 #include <linux/if.h>
 #include <stdio.h>
 
-#define BPF_MAP_ID_TPROXY       1
-#define BPF_MAP_ID_IFINDEX_IP   2
-#define BPF_MAP_ID_PROG_MAP     3
-#define BPF_MAP_ID_MATCHED_KEY  4
-#define BPF_MAP_ID_DIAG_MAP     5
-#define BPF_MAP_ID_TCP_MAP      6
-#define BPF_MAP_ID_UDP_MAP      7
-#define BPF_MAX_ENTRIES         100 //MAX # PREFIXES
-#define MAX_INDEX_ENTRIES       100 //MAX port ranges per prefix need to match in user space apps 
-#define MAX_TABLE_SIZE          65536 //needs to match in userspace
-#define GENEVE_UDP_PORT         6081
-#define GENEVE_VER              0
-#define AWS_GNV_HDR_OPT_LEN     32 // Bytes
-#define AWS_GNV_HDR_LEN         40 // Bytes
-#define MATCHED_KEY_DEPTH       3
-#define MATCHED_INT_DEPTH       50
-#define MAX_IF_LIST_ENTRIES     3
+#define BPF_MAP_ID_TPROXY           1
+#define BPF_MAP_ID_IFINDEX_IP       2
+#define BPF_MAP_ID_PROG_MAP         3
+#define BPF_MAP_ID_MATCHED_KEY      4
+#define BPF_MAP_ID_DIAG_MAP         5
+
+#define BPF_MAP_ID_TUPLE_COUNT_MAP  6
+#define BPF_MAP_ID_TCP_MAP          7
+#define BPF_MAP_ID_UDP_MAP          8
+#define BPF_MAX_ENTRIES             100 //MAX # PREFIXES
+#define MAX_INDEX_ENTRIES           100 //MAX port ranges per prefix need to match in user space apps 
+#define MAX_TABLE_SIZE              65536 //needs to match in userspace
+#define GENEVE_UDP_PORT             6081
+#define GENEVE_VER                  0
+#define AWS_GNV_HDR_OPT_LEN         32 // Bytes
+#define AWS_GNV_HDR_LEN             40 // Bytes
+#define MATCHED_KEY_DEPTH           3
+#define MATCHED_INT_DEPTH           50
+#define MAX_IF_LIST_ENTRIES         3
 
 
 struct tproxy_port_mapping {
@@ -179,6 +181,16 @@ struct {
     __uint(max_entries, 28);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } diag_map SEC(".maps");
+
+//map to keep track of total entries in zt_tproxy_map
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(id, BPF_MAP_ID_TUPLE_COUNT_MAP);
+    __uint(key_size, sizeof(uint32_t));
+    __uint(value_size, sizeof(uint32_t));
+    __uint(max_entries, 1);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} tuple_count_map SEC(".maps");
 
 /* File system pinned Hashmap to store the socket mapping with look up key with the 
 * following struct format. 
