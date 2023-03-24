@@ -39,7 +39,7 @@ external and trusted.
         packet fined a matching expired state it will return the state to active.
 
     In order to support this per interface rule awareness was added which allows each port range within a prefix
-    to match a list of connected interfaces.  On aper interface basis you can decide to honor that list or not via
+    to match a list of connected interfaces.  On a per interface basis you can decide to honor that list or not via
     a per-prefix-rules setting in the following manner via the map_update utility
     
     singly:
