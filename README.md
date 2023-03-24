@@ -29,7 +29,7 @@ external and trusted.
 
     TCP:
         If the tcp connections close gracefully then the entries will remove upon connection closure. 
-        if not then there is a 15 minute timeout that will remove the in active state if no traffic seen
+        if not then there is a 60 minute timeout that will remove the in active state if no traffic seen
         in either direction.
 
     UDP:
@@ -53,7 +53,7 @@ external and trusted.
     sudo map_update -P all
     ```
 
-    In order to assign one or more interfaces to a rule you would use the new -N option in combination with the -I i.e.
+    In order to assign 1 to 3 interfaces to a rule you would use the new -N option in combination with the -I i.e.
     to associate the rule to end37 and lo:
 
     ```
