@@ -72,7 +72,7 @@ external and trusted.
 ```bash   
 sudo tc qdisc add dev <interface name>  clsact
 sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
-sudo tc filter add dev <interface name> egress bpf da obj outbound_track.o sec action
+sudo tc filter add dev <interface name> egress bpf da obj outbound_track.o sec action  //optional only if firewalling subtending devices 
 sudo ufw allow in on <interface name> to any
 ```
 
