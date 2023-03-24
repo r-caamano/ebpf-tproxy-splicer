@@ -80,7 +80,7 @@ static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
 static char *echo_interface;
 static char *verbose_interface;
-const char *argp_program_version = "0.2.8";
+const char *argp_program_version = "0.2.9";
 int get_key_count();
 
 struct ifindex_ip4
