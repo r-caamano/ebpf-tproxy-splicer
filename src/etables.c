@@ -698,37 +698,6 @@ void map_delete_key(struct tproxy_key key)
     }
     else
     {
-        union bpf_attr count_map;
-        /*path to pinned ifindex_ip_map*/
-        const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
-        memset(&count_map, 0, sizeof(count_map));
-        /* set path name with location of map in filesystem */
-        count_map.pathname = (uint64_t)count_map_path;
-        count_map.bpf_fd = 0;
-        count_map.file_flags = 0;
-        /* make system call to get fd for map */
-        int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
-        if (count_fd == -1)
-        {
-            printf("BPF_OBJ_GET: %s \n", strerror(errno));
-            exit(1);
-        }
-        uint32_t count_key = 0;
-        uint32_t count_value = 0;
-        count_map.map_fd = count_fd;
-        count_map.key = (uint64_t)&count_key;
-        count_map.value = (uint64_t)&count_value;
-        int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
-        if(!lookup){
-            count_value--;
-            count_map.flags = BPF_ANY;
-            int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
-            if (result)
-            {
-                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-            }  
-        }
-        close(count_fd);
         if(route && route_delete)
         {
             unbind_prefix(&dcidr, dplen);
@@ -893,6 +862,38 @@ void map_flush()
         map_delete_key(current_key);
     }
     close(fd);
+    union bpf_attr count_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+    memset(&count_map, 0, sizeof(count_map));
+    /* set path name with location of map in filesystem */
+    count_map.pathname = (uint64_t)count_map_path;
+    count_map.bpf_fd = 0;
+    count_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int count_fd = syscall(__NR_bpf, BPF_OBJ_GET, &count_map, sizeof(count_map));
+    if (count_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    uint32_t count_key = 0;
+    uint32_t count_value = 0;
+    count_map.map_fd = count_fd;
+    count_map.key = (uint64_t)&count_key;
+    count_map.value = (uint64_t)&count_value;
+    int lookup = syscall(__NR_bpf, BPF_MAP_LOOKUP_ELEM, &count_map, sizeof(count_map));
+    if(!lookup){
+        count_value = 0;
+        count_map.flags = BPF_ANY;
+        int result = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &count_map, sizeof(count_map));
+        if (result)
+        {
+            printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        }
+        
+    }
+    close(count_fd);
 }
 
 void map_list()
