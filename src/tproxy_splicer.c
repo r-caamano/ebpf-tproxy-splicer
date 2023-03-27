@@ -1089,13 +1089,12 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                     }
                     /*check if interface is set for per interface rule awarness and if yes check if it is in the rules interface list.  If not in
                     the interface list drop it on all interfaces accept loopback.  If its not aware then forward based on mapping*/
-                    if(!local_diag->per_interface || (tproxy->port_mapping[port_key].if_list[0] == skb->ifindex) || 
-                    (tproxy->port_mapping[port_key].if_list[1] == skb->ifindex) || (tproxy->port_mapping[port_key].if_list[2] == skb->ifindex)){
+                    sockcheck.ipv4.daddr = 0x0100007f;
+                    sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
+                    if(!local_diag->per_interface){
                         if(tproxy->port_mapping[port_key].tproxy_port == 0){
                             return TC_ACT_OK;
                         }
-                        sockcheck.ipv4.daddr = 0x0100007f;
-                        sockcheck.ipv4.dport = tproxy->port_mapping[port_key].tproxy_port;
                         if(key.protocol == IPPROTO_TCP){
                             sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
                         }else{
@@ -1110,7 +1109,29 @@ int bpf_sk_splice5(struct __sk_buff *skb){
                         }
                         goto assign;
                     }
-                    else if(skb->ifindex == 1){
+                    
+                    for(int x = 0; x < MAX_IF_LIST_ENTRIES; x++){
+                        if(tproxy->port_mapping[port_key].if_list[x] == skb->ifindex){
+                            if(tproxy->port_mapping[port_key].tproxy_port == 0){
+                                return TC_ACT_OK;
+                            }
+                            if(key.protocol == IPPROTO_TCP){
+                                sk = bpf_skc_lookup_tcp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+                            }else{
+                                sk = bpf_sk_lookup_udp(skb, &sockcheck, sizeof(sockcheck.ipv4),BPF_F_CURRENT_NETNS, 0);
+                            }
+                            if(!sk){
+                                return TC_ACT_SHOT;
+                            }
+                            if((key.protocol == IPPROTO_TCP) && (sk->state != BPF_TCP_LISTEN)){
+                                bpf_sk_release(sk);
+                                return TC_ACT_SHOT;    
+                            }
+                            goto assign;
+                        }
+                    }
+
+                    if(skb->ifindex == 1){
                         if(local_diag->verbose){
                             bpf_printk("%s failed to match rule: Reason interface list", local_ip4->ifname);
                         }
