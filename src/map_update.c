@@ -42,7 +42,9 @@
 #include <argp.h>
 #include <linux/socket.h>
 
-#define BPF_MAX_ENTRIES     100 //MAX # PREFIXES
+#ifndef BPF_MAX_ENTRIES
+#define BPF_MAX_ENTRIES   100 //MAX # PREFIXES
+#endif
 #define MAX_INDEX_ENTRIES   100 // MAX port ranges per prefix
 #define MAX_TABLE_SIZE      65536 // PORT MApping table size
 #define MAX_IF_LIST_ENTRIES 3
