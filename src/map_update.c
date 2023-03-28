@@ -359,7 +359,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             ntohs(tuple->port_mapping[tuple->index_table[x]].high_port));       
         if(intercept && !passthru){
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                 dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port));
                 char interfaces[IF_NAMESIZE*MAX_IF_LIST_ENTRIES+8] = "";
                 for(int i = 0; i < MAX_IF_LIST_ENTRIES; i++){
@@ -407,7 +407,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
             }
         }else{
             if(ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port) > 0){
-                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%d ", "TPROXY", proto, scidr_block, dcidr_block,
+                printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\tTPROXY redirect 127.0.0.1:%-6d", "TPROXY", proto, scidr_block, dcidr_block,
                 dpts, ntohs(tuple->port_mapping[tuple->index_table[x]].tproxy_port)); 
             }else{
                 printf("%-11s\t%-3s\t%-20s\t%-32s%-17s\t%s to %-20s", "PASSTHRU", proto, scidr_block, dcidr_block,
