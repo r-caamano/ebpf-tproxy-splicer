@@ -219,7 +219,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
     struct tuple_key udp_state_key;
 
     /*look up attached interface inbound diag status*/
-    struct diag_ip4 *local_diag = get_diag_ip4(skb->ingress_ifindex);
+    struct diag_ip4 *local_diag = get_diag_ip4(skb->ifindex);
     if(!local_diag){
         if(skb->ingress_ifindex == 1){
             return TC_ACT_OK;
