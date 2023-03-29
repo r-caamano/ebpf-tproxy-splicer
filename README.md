@@ -127,7 +127,7 @@ be applied.  This is a per interface setting and can be set for all interfaces e
 ```bash
 Usage: ./map_update -x <interface-name> | all
 
-sudo sudo ./map_update -e ens33
+sudo sudo ./map_update -x ens33
 ```
 
 
