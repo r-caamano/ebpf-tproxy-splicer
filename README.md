@@ -119,6 +119,18 @@ sudo ./map_update -I -c 172.16.240.0 -m 24 -l 5060 -h 5060 -t 58997 -p udp
 As mentioned earlier if you add -r, --route as argument the program will add 172.16.240.0/24 to the "lo" interface if it
 does not overlap with an external LAN interface subnet.
 
+Example: Disable ssh from interface.
+
+This will disable default ssh action to pass to ip of local interface and then fall through to rule check instead where a more specific rule could
+be applied.  This is a per interface setting and can be set for all interfaces except loopback.
+
+```bash
+Usage: ./map_update -x <interface-name> | all
+
+sudo sudo ./map_update -x ens33
+```
+
+
 Example: Insert map entry to with source filteing to only allow rule for ip source 10.1.1.1/32.
 
 ```bash
