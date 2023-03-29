@@ -105,6 +105,7 @@ struct ifindex_ip4 {
 struct diag_ip4 {
     bool echo;
     bool verbose;
+    bool ssh_disable;
 };
 
 /*bpf program map*/
@@ -504,7 +505,7 @@ int bpf_sk_splice(struct __sk_buff *skb){
 
 
     /* allow ssh to local system */
-    if(((!local_ip4) || (!local_ip4->ipaddr)) || (tuple->ipv4.daddr == local_ip4->ipaddr)){
+    if(((!local_ip4) || (!local_ip4->ipaddr)) || ((tuple->ipv4.daddr == local_ip4->ipaddr) && !local_diag->ssh_disable)){
        if(tcp && (bpf_ntohs(tuple->ipv4.dport) == 22)){
             return TC_ACT_OK;
        }

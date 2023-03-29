@@ -65,6 +65,7 @@ static bool passthru = false;
 static bool intercept = false;
 static bool echo = false;
 static bool verbose = false;
+static bool ssh_disable = false;
 static bool all_interface = false;
 static bool disable = false;
 static struct in_addr dcidr;
@@ -81,6 +82,7 @@ static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
 static char doc[] = "etables -- ebpf mapping tool";
 static char *echo_interface;
 static char *verbose_interface;
+static char *ssh_interface;
 const char *argp_program_version = "0.2.9";
 int get_key_count();
 
@@ -93,6 +95,7 @@ struct ifindex_ip4
 struct diag_ip4 {
     bool echo;
     bool verbose;
+    bool ssh_disable;
 };
 
 struct tproxy_port_mapping
@@ -433,6 +436,18 @@ bool set_diag(int *idx){
             }
             printf("Set verbose to %d for %s\n", !disable, verbose_interface);
         }
+        if (ssh_disable)
+        {
+            if (!disable)
+            {
+                o_diag.ssh_disable = true;
+            }
+            else
+            {
+                o_diag.ssh_disable = false;
+            }
+            printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
+        }
     }  
     int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
     if (ret)
@@ -445,7 +460,7 @@ bool set_diag(int *idx){
     return true;
 }
 
-bool interface_map()
+bool interface_diag()
 {
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr if_map;
@@ -531,6 +546,103 @@ bool interface_map()
                     set_diag(&idx);
                 }
             }
+            
+            if (ssh_disable && !(idx == 1))
+            {
+                if (!strcmp(ssh_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+            else if (ssh_disable && !strcmp(ssh_interface, "lo") && (idx == 1) && lo_count == 1)
+            {
+                printf("disable-ssh  is always set to 0 for lo\n");
+            }
+
+            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+            if (ret)
+            {
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                close(if_fd);
+                exit(1);
+            }
+        }
+        net_count++;
+        address = address->ifa_next;
+    }
+    close(if_fd);
+    freeifaddrs(addrs);
+    return create_route;
+}
+
+bool interface_map()
+{
+    /* create bpf_attr to store ifindex_ip_map */
+    union bpf_attr if_map;
+    /*path to pinned ifindex_ip_map*/
+    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+    struct ifaddrs *addrs;
+
+    /* call function to get a linked list of interface structs from system */
+    if (getifaddrs(&addrs) == -1)
+    {
+        printf("can't get addrs");
+        exit(1);
+    }
+    struct ifaddrs *address = addrs;
+    /* open BPF ifindex_ip_map */
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    if_map.map_fd = if_fd;
+    int idx = 0;
+    /*
+     * traverse linked list of interfaces and for each non-loopback interface
+     *  populate the index into the map with ifindex as the key and ip address
+     *  as the value
+     */
+    int net_count = 0;
+    struct sockaddr_in *ipaddr;
+    in_addr_t ifip;
+    int ipcheck = 0;
+    bool create_route = true;
+    while (address)
+    {
+        if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
+        {
+            get_index(address->ifa_name, &idx);
+            if (strncmp(address->ifa_name, "lo", 2))
+            {
+                ipaddr = (struct sockaddr_in *)address->ifa_addr;
+                ifip = ipaddr->sin_addr.s_addr;
+                struct sockaddr_in *network_mask = (struct sockaddr_in *)address->ifa_netmask;
+                __u32 netmask = ntohl(network_mask->sin_addr.s_addr);
+                ipcheck = is_subset(ntohl(ifip), netmask, ntohl(dcidr.s_addr));
+                if(!ipcheck)
+                {
+                    create_route = false;
+                }
+            }
+            else
+            {
+               ifip = 0x0100007f;
+            }
+            struct ifindex_ip4 ifip4 = {
+                ifip,
+                {0}};
+            sprintf(ifip4.ifname, "%s", address->ifa_name);
+            if_map.key = (uint64_t)&idx;
+            if_map.flags = BPF_ANY;
+            if_map.value = (uint64_t)&ifip4;
             int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
             if (ret)
             {
@@ -1044,6 +1156,7 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
+    {"disable-ssh", 'x', "", 0, "disable inbound ssh echo to interface (default enabled)", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
     {"verbose", 'v', "", 0, "enable inbound icmp echo to interface", 0},
@@ -1173,6 +1286,23 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
            verbose_interface = arg;
         }
         break;
+    case 'x':
+        if (!strlen(arg))
+        {
+            fprintf(stderr, "Interface name or all required as arg to -x, --disable-ssh: %s\n", arg);
+            fprintf(stderr, "%s --help for more info\n", program_name);
+            exit(1);
+        }
+        ssh_disable = true;
+        if (!strcmp("all", arg))
+        {
+            all_interface = true;
+        }
+        else
+        {
+            ssh_interface = arg;
+        }
+        break;
     default:
         return ARGP_ERR_UNKNOWN;
     }
@@ -1185,20 +1315,19 @@ int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
-    if(echo && verbose){
-        usage("Can not set -e, --icmp-echo and -v, --verbose with single call to etables");
+    if (echo && (ssh_disable || verbose || add || delete || list || flush))
+    {
+        usage("-e, --icmp-echo cannot be set as a part of combination call to map_update");
     }
 
-    if(echo && (add || delete || list || flush)){
-        usage("Can not set -e, --icmp-echo with any other calls to etables besides -d");
-    }    
+    if (verbose && (ssh_disable || echo || add || delete || list || flush))
+    {
+        usage("-v, --verbose cannot be set as a part of combination call to map_update");
+    }
 
-    if(verbose && (add || delete || list || flush)){
-        usage("Can not set -v, --verbose with any other calls to etables besides -d");
-    }   
-
-    if(disable && (!echo && !verbose)){
-        usage("Missing argument at lease one of -e, --icmp-echo or -v, --verbose");
+    if (ssh_disable && (echo || verbose || add || delete || list || flush))
+    {
+        usage("-x, --disable-ssh cannot be set as a part of combination call to map_update");
     }
 
     if(verbose){
@@ -1331,6 +1460,21 @@ int main(int argc, char **argv)
             }
             map_list();
         }
+    }
+    else if (verbose)
+    {
+        interface_diag();
+        exit(0);
+    }
+    else if (ssh_disable)
+    {
+        interface_diag();
+        exit(0);
+    }
+    else if (echo)
+    {
+        interface_diag();
+        exit(0);
     }
     else
     {
