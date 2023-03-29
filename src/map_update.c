@@ -714,7 +714,7 @@ bool interface_diag()
                     set_diag(&idx);
                 }
             }
-            else if (ssh_interface && !strcmp(ssh_interface, "lo") && (idx == 1) && lo_count == 1)
+            else if (ssh_disable && !strcmp(ssh_interface, "lo") && (idx == 1) && lo_count == 1)
             {
                 printf("disable-ssh  is always set to 0 for lo\n");
             }
