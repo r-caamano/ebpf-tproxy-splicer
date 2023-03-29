@@ -68,6 +68,7 @@ struct diag_ip4 {
     bool echo;
     bool verbose;
     bool per_interface;
+    bool ssh_disable;
 };
 
 //map to keep status of diagnostic rules
