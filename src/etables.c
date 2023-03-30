@@ -1162,7 +1162,7 @@ static struct argp_option options[] = {
     {"disable-ssh", 'x', "", 0, "disable inbound ssh to interface (default enabled)", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
-    {"verbose", 'v', "", 0, "enable inbound icmp echo to interface", 0},
+    {"verbose", 'v', "", 0, "enable verbose tracing on interface", 0},
     {"disable", 'd', NULL, 0, "disable associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
