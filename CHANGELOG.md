@@ -11,8 +11,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Fixed
 
-- added additional check in tproxy_splicer_startup.sh to verify if icmp-echo is already enabled in UFW. To avoid having UFW continually reload when
-  ziti-router is restarting due to errors.
+- added additional check in tproxy_splicer_startup.sh to verify if icmp-echo is already enabled in UFW. To avoid having UFW 
+  continually reload when ziti-router is restarting due to errors.
 
 ## [0.2.9] - 2023-03-20
 
