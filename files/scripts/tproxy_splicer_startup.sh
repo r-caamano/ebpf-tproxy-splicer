@@ -179,14 +179,33 @@ function update_map_user()
             if [ $ICMP == true ]; then
                 echo "INFO: ICMP is set to $ICMP"
                 $etables -e $LANIF
-                sed -i '/ufw-before-input.*icmp/s/DROP/ACCEPT/g' /etc/ufw/before.rules
-                ufw reload
+		is_enabled=$(grep -r "\-A ufw-before\-input \-p icmp \-\-icmp\-type echo\-request \-j ACCEPT" /etc/ufw/before.rules)
+		if [[ ${#is_enabled} -eq 0 ]]
+		then
+                    sed -i '/ufw-before-input.*icmp/s/DROP/ACCEPT/g' /etc/ufw/before.rules
+                    ufw reload
+		else
+		    echo "ICMP:UFW already modified to accept icmp, nothing to do"
+		fi
             else
                 echo "INFO: ICMP is set to $ICMP"
                 $etables -e $LANIF -d
                 sed -i '/ufw-before-input.*icmp/s/ACCEPT/DROP/g' /etc/ufw/before.rules
                 echo "WARNING: icmp disable will not take affect until after reboot"
             fi
+	# Enable or disable ssh on $LANIF
+        if [[ -n  `yq '.ssh' $ebpf_user_file` ]]; then
+            SSH=`yq '.ssh.disable' $ebpf_user_file`
+            if [ $SSH == true ]; then
+                echo "INFO: ssh disabled is set to $SSH"
+                $etables -x $LANIF
+            else
+                echo "INFO: ssh disabled is set to $SSH"
+                $etables -x $LANIF -d
+            fi
+        else
+            echo "INFO: No ssh found in $ebpf_user_file, nothing to do"
+        fi
         else
             echo "INFO: No icmp found in $ebpf_user_file, nothing to do"
         fi

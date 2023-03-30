@@ -83,7 +83,7 @@ static char doc[] = "etables -- ebpf mapping tool";
 static char *echo_interface;
 static char *verbose_interface;
 static char *ssh_interface;
-const char *argp_program_version = "0.2.9";
+const char *argp_program_version = "0.2.10";
 int get_key_count();
 
 struct ifindex_ip4
@@ -385,6 +385,8 @@ void usage(char *message)
     fprintf(stderr, "       etables -e <ifname> -d\n");
     fprintf(stderr, "       etables -v <ifname>\n");
     fprintf(stderr, "       etables -v <ifname> -d\n");
+    fprintf(stderr, "       etables -x <ifname>\n");
+    fprintf(stderr, "       etables -x <ifname> -d\n");
     fprintf(stderr, "       etables --help\n");
     exit(1);
 }
@@ -425,7 +427,7 @@ bool set_diag(int *idx){
             else{
                 o_diag.echo = false;
             }
-             printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
+            printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
         }
         if(verbose){
             if(!disable){
@@ -446,7 +448,7 @@ bool set_diag(int *idx){
             {
                 o_diag.ssh_disable = false;
             }
-            printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
+            printf("Set disable-ssh to %d for %s\n", !disable, ssh_interface);
         }
     }  
     int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
@@ -533,6 +535,7 @@ bool interface_diag()
             if(all_interface){
                 echo_interface = address->ifa_name;
                 verbose_interface = address->ifa_name;
+                ssh_interface = address->ifa_name;
             }
             if(echo && !(idx == 1)){
                 if(!strcmp(echo_interface, address->ifa_name)){
@@ -1156,11 +1159,11 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
-    {"disable-ssh", 'x', "", 0, "disable inbound ssh echo to interface (default enabled)", 0},
+    {"disable-ssh", 'x', "", 0, "disable inbound ssh to interface (default enabled)", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"icmp-echo", 'e', "", 0, "enable inbound icmp echo to interface", 0},
     {"verbose", 'v', "", 0, "enable inbound icmp echo to interface", 0},
-    {"disable", 'd', NULL, 0, "disabble associated icmp echo operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
+    {"disable", 'd', NULL, 0, "disabble associated diag operation i.e. -e eth0 -d to disable inbound echo on eth0", 0},
     {"ocidr-block", 'o', "", 0, "Set origin ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
     {"dprefix-len", 'm', "", 0, "Set dest prefix length (1-32) <mandatory for insert/delete/list >", 0},
     {"oprefix-len", 'n', "", 0, "Set origin prefix length (1-32) <mandatory for insert/delete/list >", 0},
@@ -1330,22 +1333,17 @@ int main(int argc, char **argv)
         usage("-x, --disable-ssh cannot be set as a part of combination call to map_update");
     }
 
-    if(verbose){
-        interface_map();
-        exit(0);
-    }
-
-    if(echo){
-        interface_map();
-        exit(0);
-    }
-
     if((intercept || passthru) && !list){
         usage("Missing argument -L, --list");
     }
 
     if(route && (!add && !delete && !flush)){
         usage("Missing argument -r, --route requires -I --insert, -D --delete or -F --flush");
+    }
+
+    if (disable && (!ssh_disable && !echo && !verbose))
+    {
+        usage("Missing argument at least one of -e, -v, or -x");
     }
 
     if (add)
