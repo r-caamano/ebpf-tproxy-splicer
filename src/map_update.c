@@ -95,6 +95,7 @@ static char *tc_interface;
 static char *object_file;
 static char *direction_string;
 const char *argp_program_version = "0.2.6";
+const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
 int get_key_count();
@@ -580,7 +581,6 @@ bool set_diag(int *idx)
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr diag_map;
     /*path to pinned ifindex_ip_map*/
-    const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
     /* open BPF ifindex_ip_map */
     memset(&diag_map, 0, sizeof(diag_map));
     /* set path name with location of map in filesystem */
@@ -592,6 +592,8 @@ bool set_diag(int *idx)
     if (diag_fd == -1)
     {
         printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        printf("Please enable ebpf tc filter on at least one interface\n");
+         printf("i.e. sudo map_update -E ens33 && sudo map_update -X ens33  -O tproxy_splicer.o -z ingress\n");
         exit(1);
     }
     diag_map.map_fd = diag_fd;
@@ -720,6 +722,12 @@ void interface_tc()
                     {
                         if (!disable)
                         {
+                            if(access(diag_map_path, F_OK) != 0){
+                                printf("enabling ebpf on system\n");
+                            }
+                            else{
+                                printf("ebpf system status: enabled\n");
+                            }
                             set_tc_filter(tc_interface, "add", object_file, direction_string);
                         }
                         else
@@ -737,7 +745,7 @@ void interface_tc()
     freeifaddrs(addrs);
 }
 
-bool interface_diag()
+void interface_diag()
 {
     /* create bpf_attr to store ifindex_ip_map */
     struct ifaddrs *addrs;
@@ -758,8 +766,6 @@ bool interface_diag()
     int net_count = 0;
     struct sockaddr_in *ipaddr;
     in_addr_t ifip;
-    int ipcheck = 0;
-    bool create_route = true;
     int lo_count = 0;
     int if_fd = -1;
     while (address)
@@ -771,13 +777,6 @@ bool interface_diag()
             {
                 ipaddr = (struct sockaddr_in *)address->ifa_addr;
                 ifip = ipaddr->sin_addr.s_addr;
-                struct sockaddr_in *network_mask = (struct sockaddr_in *)address->ifa_netmask;
-                __u32 netmask = ntohl(network_mask->sin_addr.s_addr);
-                ipcheck = is_subset(ntohl(ifip), netmask, ntohl(dcidr.s_addr));
-                if (!ipcheck)
-                {
-                    create_route = false;
-                }
             }
             else
             {
@@ -870,7 +869,6 @@ bool interface_diag()
         close(if_fd);
     }
     freeifaddrs(addrs);
-    return create_route;
 }
 
 bool interface_map()
