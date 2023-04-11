@@ -41,6 +41,7 @@
 #include <arpa/inet.h>
 #include <argp.h>
 #include <linux/socket.h>
+#include <sys/wait.h>
 
 #ifndef BPF_MAX_ENTRIES
 #define BPF_MAX_ENTRIES 100 // MAX # PREFIXES
@@ -75,6 +76,8 @@ static bool tc = false;
 static bool tcfilter = false;
 static bool direction =false;
 static bool object;
+static bool ebpf_disable = false;
+static bool list_diag = false;
 static struct in_addr dcidr;
 static struct in_addr scidr;
 static unsigned short dplen;
@@ -85,8 +88,17 @@ static unsigned short tproxy_port;
 static char *program_name;
 static char *protocol_name;
 static unsigned short protocol;
-static const char *path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
+static const char *tproxy_map_path = "/sys/fs/bpf/tc/globals/zt_tproxy_map";
+const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
+const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
+const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+const char *matched_map_path = "/sys/fs/bpf/tc//globals/matched_map";
+const char *program_map_path = "/sys/fs/bpf/tc/globals/prog_map";
+const char *tcp_map_path = "/sys/fs/bpf/tc/globals/tcp_map";
+const char *udp_map_path = "/sys/fs/bpf/tc/globals/udp_map";
 static char doc[] = "map_update -- ebpf mapping tool";
+const char *if_map_path;
+static char *diag_interface;
 static char *echo_interface;
 static char *verbose_interface;
 static char *ssh_interface;
@@ -95,10 +107,11 @@ static char *tc_interface;
 static char *object_file;
 static char *direction_string;
 const char *argp_program_version = "0.2.6";
-const char *diag_map_path = "/sys/fs/bpf/tc/globals/diag_map";
+
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
 int get_key_count();
+void interface_tc();
 
 struct ifindex_ip4
 {
@@ -112,6 +125,8 @@ struct diag_ip4
     bool verbose;
     bool per_interface;
     bool ssh_disable;
+    bool tc_ingress;
+    bool tc_egress;
 };
 
 struct tproxy_port_mapping
@@ -138,6 +153,13 @@ struct tproxy_key
     __u16 protocol;
     __u16 pad;
 };
+
+void ebpf_usage(){
+    if(access(tproxy_map_path, F_OK) != 0){
+        printf("Ebpf not Enabled. Add a tc [filter -X, --set-tc-filter] on at least one interface\n");
+        exit(1);
+    }
+}
 
 /*function to add loopback binding for intercept IP prefixes that do not
  * currentlt exist as a subset of an external interface
@@ -182,14 +204,14 @@ void unbind_prefix(struct in_addr *address, unsigned short mask)
     free(cidr_block);
 }
 
-void set_tc(char *interface, char *action)
+void set_tc(char *action)
 {
     if(access("/usr/sbin/tc", F_OK) != 0){
         printf("tc not installed\n");
         exit(0);
     }
     pid_t pid;
-    char *const parmList[] = {"/usr/sbin/tc", "qdisc", action, "dev", interface, "clsact", NULL};
+    char *const parmList[] = {"/usr/sbin/tc", "qdisc", action, "dev", tc_interface, "clsact", NULL};
     if ((pid = fork()) == -1)
     {
         perror("fork error: can't spawn bind");
@@ -199,9 +221,25 @@ void set_tc(char *interface, char *action)
         execv("/usr/sbin/tc", parmList);
         printf("execv error: unknown error binding");
     }
+    else{
+        int status = 0;
+        if(waitpid(pid, &status, 0) > 0){
+            if(WIFEXITED(status) && !WEXITSTATUS(status)){
+                    printf("tc parent %s : %s\n", action, tc_interface);
+            }
+            else{
+                if(!strcmp("add", action)){
+                    printf("tc parent already exists : %s\n", tc_interface);
+                }
+                else{
+                    printf("tc parent does not exist : %s\n", tc_interface);
+                }
+            }
+        }
+    }
 }
 
-void set_tc_filter(char *interface, char *action, char * object_file, char *direction)
+void set_tc_filter(char *action, char * object_file)
 {
     if(access("/usr/sbin/tc", F_OK) != 0){
         printf("tc not installed\n");
@@ -213,7 +251,8 @@ void set_tc_filter(char *interface, char *action, char * object_file, char *dire
     }
     pid_t pid;
     if(!strcmp(action,"add")){
-        char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", interface, direction, "bpf",
+        set_tc(action);
+        char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, "bpf",
             "da", "obj", object_file, "sec", "action", NULL};
         if ((pid = fork()) == -1)
         {
@@ -224,9 +263,18 @@ void set_tc_filter(char *interface, char *action, char * object_file, char *dire
             execv("/usr/sbin/tc", parmList);
             printf("execv error: unknown error attaching filter");
         }
+        else{
+            int status =0;
+            if(!(waitpid(pid, &status, 0) > 0)){
+                if(WIFEXITED(status) && !WEXITSTATUS(status)){
+                    printf("tc %s filter not set : %s\n", direction_string, tc_interface);
+                }
+            }
+        }
+
     }
     else{
-        char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", interface, direction, NULL};
+        char *const parmList[] = {"/usr/sbin/tc", "filter", action, "dev", tc_interface, direction_string, NULL};
         if ((pid = fork()) == -1)
         {
             perror("fork error: can't remove filter");
@@ -235,6 +283,25 @@ void set_tc_filter(char *interface, char *action, char * object_file, char *dire
         {
             execv("/usr/sbin/tc", parmList);
             printf("execv error: unknown error removing filter");
+        }
+    }
+}
+
+void disable_ebpf(){
+    all_interface = true;
+    disable = true;
+    tc = true;
+    interface_tc();
+    const char *maps[8] = {tproxy_map_path, diag_map_path, if_map_path, count_map_path, program_map_path,
+        udp_map_path, matched_map_path, tcp_map_path};
+    for(int map_count = 0; map_count < 8; map_count++){
+        
+        int stat = remove(maps[map_count]);
+        if(!stat){
+            printf("removing %s\n", maps[map_count]);
+        }
+        else{
+            printf("file does not exist: %s\n", maps[map_count]);
         }
     }
 }
@@ -397,7 +464,7 @@ void print_rule(struct tproxy_key *key, struct tproxy_tuple *tuple, int *rule_co
 {
     union bpf_attr if_map;
     /*path to pinned ifindex_ip_map*/
-    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
+    if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
     memset(&if_map, 0, sizeof(if_map));
     /* set path name with location of map in filesystem */
     if_map.pathname = (uint64_t)if_map_path;
@@ -571,6 +638,9 @@ void usage(char *message)
     fprintf(stderr, "       map_update -x <ifname> -d\n");
     fprintf(stderr, "       map_update -P <ifname>\n");
     fprintf(stderr, "       map_update -P <ifname> -d\n");
+    fprintf(stderr, "       map_update -X <ifname> -O <object file name> -z direction\n");
+    fprintf(stderr, "       map_update -X <ifname> -O <object file name> -z direction -d\n");
+    fprintf(stderr, "       map_update -Q\n");
     fprintf(stderr, "       map_update -V\n");
     fprintf(stderr, "       map_update --help\n");
     exit(1);
@@ -578,6 +648,9 @@ void usage(char *message)
 
 bool set_diag(int *idx)
 {
+    if(access(diag_map_path, F_OK) != 0){
+        ebpf_usage();
+    }
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr diag_map;
     /*path to pinned ifindex_ip_map*/
@@ -610,62 +683,109 @@ bool set_diag(int *idx)
     }
     else
     {
-        if (echo)
-        {
-            if (!disable)
+        if(!list_diag){
+            if (echo)
             {
-                o_diag.echo = true;
+                if (!disable || *idx == 1)
+                {
+                    o_diag.echo = true;
+                }
+                else
+                {
+                    o_diag.echo = false;
+                }
+                if(*idx != 1){
+                    printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
+                }
+                else{
+                    printf("icmp echo is always set to 1 for lo\n");
+                }
             }
-            else
+            if (verbose)
             {
-                o_diag.echo = false;
+                if (!disable)
+                {
+                    o_diag.verbose = true;
+                }
+                else
+                {
+                    o_diag.verbose = false;
+                }
+                printf("Set verbose to %d for %s\n", !disable, verbose_interface);
             }
-            printf("Set icmp-echo to %d for %s\n", !disable, echo_interface);
-        }
-        if (verbose)
-        {
-            if (!disable)
+            if (per_interface)
             {
-                o_diag.verbose = true;
+                if (!disable)
+                {
+                    o_diag.per_interface = true;
+                }
+                else
+                {
+                    o_diag.per_interface = false;
+                }
+                printf("Set per_interface rule aware to %d for %s\n", !disable, prefix_interface);
             }
-            else
+            if (ssh_disable)
             {
-                o_diag.verbose = false;
+                if (!disable || *idx == 1)
+                {
+                    o_diag.ssh_disable = true;
+                }
+                else
+                {
+                    o_diag.ssh_disable = false;
+                }
+                if(*idx != 1){
+                    printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
+                }
+                else{
+                    printf("Set disable_ssh is always set to 1 for lo\n");
+                }
             }
-            printf("Set verbose to %d for %s\n", !disable, verbose_interface);
-        }
-        if (per_interface)
-        {
-            if (!disable)
+            if (tcfilter && !strcmp("ingress", direction_string))
             {
-                o_diag.per_interface = true;
+                if (!disable)
+                {
+                    o_diag.tc_ingress = true;
+                }
+                else
+                {
+                    o_diag.tc_ingress = false;
+                }
+                printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
             }
-            else
+            if (tcfilter && !strcmp("egress", direction_string))
             {
-                o_diag.per_interface = false;
+                if (!disable)
+                {
+                    o_diag.tc_egress = true;
+                }
+                else
+                {
+                    o_diag.tc_egress = false;
+                }
+                printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
             }
-            printf("Set per_interface rule aware to %d for %s\n", !disable, prefix_interface);
-        }
-        if (ssh_disable)
-        {
-            if (!disable)
+            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
+            if (ret)
             {
-                o_diag.ssh_disable = true;
+                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                close(diag_fd);
+                exit(1);
             }
-            else
-            {
-                o_diag.ssh_disable = false;
-            }
-            printf("Set disable_ssh to %d for %s\n", !disable, ssh_interface);
+        }else{
+            printf("%s:\n",diag_interface);
+            printf("--------------------------\n");
+            printf("%-24s:%d\n", "icmp echo",o_diag.echo);
+            printf("%-24s:%d\n", "verbose", o_diag.verbose);
+            printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
+            printf("%-24s:%d\n", "per interface",o_diag.per_interface); 
+            printf("%-24s:%d\n", "tc ingress filter", o_diag.tc_ingress);
+            printf("%-24s:%d\n", "tc egress filter", o_diag.tc_egress);
+            printf("--------------------------\n\n");
         }
     }
-    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &diag_map, sizeof(diag_map));
-    if (ret)
-    {
-        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-        close(diag_fd);
-        exit(1);
-    }
+        
     close(diag_fd);
     return true;
 }
@@ -710,31 +830,25 @@ void interface_tc()
                     {
                         if (!disable)
                         {
-                            set_tc(tc_interface, "add");
+                            set_tc("add");
                         }
                         else
                         {
-                            set_tc(tc_interface, "del");
+                            set_tc("del");
                         }
-                        printf("Set tc to %d for %s\n", !disable, tc_interface);
                     }
                     if (tcfilter)
                     {
                         if (!disable)
                         {
-                            if(access(diag_map_path, F_OK) != 0){
-                                printf("enabling ebpf on system\n");
-                            }
-                            else{
-                                printf("ebpf system status: enabled\n");
-                            }
-                            set_tc_filter(tc_interface, "add", object_file, direction_string);
+                            set_tc_filter("add", object_file);
+                            set_diag(&idx);
                         }
                         else
                         {
-                            set_tc_filter(tc_interface, "del", object_file, direction_string);
+                            set_tc_filter("del", object_file);
+                            set_diag(&idx);
                         }
-                        printf("Set tc filter enable to %d for %s on %s\n", !disable, direction_string, tc_interface);
                     }
                 }
             }
@@ -794,6 +908,7 @@ void interface_diag()
                 prefix_interface = address->ifa_name;
                 ssh_interface = address->ifa_name;
                 ssh_interface = address->ifa_name;
+                diag_interface = address->ifa_name;
             }
             if (echo && !(idx == 1))
             {
@@ -804,7 +919,7 @@ void interface_diag()
             }
             else if (echo && !strcmp(echo_interface, "lo") && (idx == 1) && lo_count == 1)
             {
-                printf("icmp echo is always set to 1 for lo\n");
+                set_diag(&idx);
             }
 
             if (verbose && !((idx == 1) && lo_count > 1))
@@ -823,43 +938,55 @@ void interface_diag()
                 }
             }
 
+            if (list_diag && !((idx == 1) && lo_count > 1))
+            {
+                if (!strcmp(prefix_interface, address->ifa_name))
+                {
+                    set_diag(&idx);
+                }
+            }
+
             if (ssh_disable && !(idx == 1))
             {
-                if (!strcmp(ssh_interface, address->ifa_name))
+                if (!strcmp(diag_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
             }
             else if (ssh_disable && !strcmp(ssh_interface, "lo") && (idx == 1) && lo_count == 1)
             {
-                printf("disable-ssh  is always set to 0 for lo\n");
+                set_diag(&idx);
             }
-            union bpf_attr if_map;
-            /*path to pinned ifindex_ip_map*/
-            const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
-            /* open BPF ifindex_ip_map */
-            memset(&if_map, 0, sizeof(if_map));
-            /* set path name with location of map in filesystem */
-            if_map.pathname = (uint64_t)if_map_path;
-            if_map.bpf_fd = 0;
-            if_map.file_flags = 0;
-            /* make system call to get fd for map */
-            if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
-            if (if_fd == -1)
-            {
-                printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                exit(1);
+            if(access(diag_map_path, F_OK) != 0){
+                ebpf_usage();
             }
-            if_map.map_fd = if_fd;
-            if_map.key = (uint64_t)&idx;
-            if_map.flags = BPF_ANY;
-            if_map.value = (uint64_t)&ifip4;
-            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-            if (ret)
-            {
-                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                close(if_fd);
-                exit(1);
+            if(!((idx == 1) && lo_count > 1)){
+                union bpf_attr if_map;
+                /*path to pinned ifindex_ip_map*/
+                /* open BPF ifindex_ip_map */
+                memset(&if_map, 0, sizeof(if_map));
+                /* set path name with location of map in filesystem */
+                if_map.pathname = (uint64_t)if_map_path;
+                if_map.bpf_fd = 0;
+                if_map.file_flags = 0;
+                /* make system call to get fd for map */
+                if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+                if (if_fd == -1)
+                {
+                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                    exit(1);
+                }
+                if_map.map_fd = if_fd;
+                if_map.key = (uint64_t)&idx;
+                if_map.flags = BPF_ANY;
+                if_map.value = (uint64_t)&ifip4;
+                int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+                if (ret)
+                {
+                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                    close(if_fd);
+                    exit(1);
+                }
             }
         }
         net_count++;
@@ -876,7 +1003,6 @@ bool interface_map()
     /* create bpf_attr to store ifindex_ip_map */
     union bpf_attr if_map;
     /*path to pinned ifindex_ip_map*/
-    const char *if_map_path = "/sys/fs/bpf/tc/globals/ifindex_ip_map";
     struct ifaddrs *addrs;
 
     /* call function to get a linked list of interface structs from system */
@@ -969,7 +1095,7 @@ void map_insert()
     /* open BPF zt_tproxy_map map */
     memset(&map, 0, sizeof(map));
     /* set path name with location of map in filesystem */
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     /* make system call to get fd for map */
@@ -1035,7 +1161,6 @@ void map_insert()
         {
             union bpf_attr count_map;
             /*path to pinned ifindex_ip_map*/
-            const char *count_map_path = "/sys/fs/bpf/tc/globals/tuple_count_map";
             memset(&count_map, 0, sizeof(count_map));
             /* set path name with location of map in filesystem */
             count_map.pathname = (uint64_t)count_map_path;
@@ -1102,7 +1227,7 @@ void map_delete_key(struct tproxy_key key)
     bool route_delete = interface_map();
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
     if (fd == -1)
@@ -1136,7 +1261,7 @@ void map_delete()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -1175,7 +1300,7 @@ void map_delete()
         if (orule.index_len == 0)
         {
             memset(&map, 0, sizeof(map));
-            map.pathname = (uint64_t)path;
+            map.pathname = (uint64_t)tproxy_map_path;
             map.bpf_fd = 0;
             int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
             if (fd == -1)
@@ -1258,7 +1383,7 @@ void map_flush()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -1324,7 +1449,7 @@ void map_list()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -1414,7 +1539,7 @@ void map_list_all()
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
     memset(&map, 0, sizeof(map));
-    map.pathname = (uint64_t)path;
+    map.pathname = (uint64_t)tproxy_map_path;
     map.bpf_fd = 0;
     map.file_flags = 0;
     int fd = syscall(__NR_bpf, BPF_OBJ_GET, &map, sizeof(map));
@@ -1462,6 +1587,7 @@ static struct argp_option options[] = {
     {"delete", 'D', NULL, 0, "Delete map rule", 0},
     {"list", 'L', NULL, 0, "List map rules", 0},
     {"flush", 'F', NULL, 0, "Flush all map rules", 0},
+    {"disable-ebpf", 'Q', NULL, 0, "delete tc from all interface and remove all maps", 0},
     {"per-interface-rules", 'P', "", 0, "set interface to per interface rule aware", 0},
     {"disable-ssh", 'x', "", 0, "disable inbound ssh echo to interface (default enabled)", 0},
     {"dcidr-block", 'c', "", 0, "Set dest ip prefix i.e. 192.168.1.0 <mandatory for insert/delete/list>", 0},
@@ -1479,7 +1605,7 @@ static struct argp_option options[] = {
     {"intercepts", 'i', NULL, 0, "list intercept rules <optional for list>", 0},
     {"passthrough", 'f', NULL, 0, "list passthrough rules <optional list>", 0},
     {"interface", 'N', "", 0, "Interface <optional insert>", 0},
-    {"set-tc", 'E', "", 0, "Enable/disable TC on interface", 0},
+    {"list-diag", 'E', NULL, 0, "", 0},
     {"set-tc-filter", 'X', "", 0, "add/remove TC filter to/from interface", 0},
     {"object-file", 'O', "", 0, "set object file", 0},
     {"direction", 'z', "", 0, "set direction", 0},
@@ -1494,21 +1620,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         delete = true;
         break;
      case 'E':
-        if (!strlen(arg))
-        {
-            fprintf(stderr, "Interface name or all required as arg to -E, --set-tc: %s\n", arg);
-            fprintf(stderr, "%s --help for more info\n", program_name);
-            exit(1);
-        }
-        tc = true;
-        if (!strcmp("all", arg))
-        {
-            all_interface = true;
-        }
-        else
-        {
-            tc_interface = arg;
-        }
+        list_diag = true;
+        all_interface = true;
         break;
     case 'F':
         flush = true;
@@ -1520,9 +1633,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         list = true;
         break;
     case 'N':
-        if (!strlen(arg))
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
-            fprintf(stderr, "Interface name or all required as arg to -P, --per-interface-rules: %s\n", arg);
+            fprintf(stderr, "Interface name required as arg to -N, --interface: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
@@ -1554,7 +1667,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         object_file = arg;
         break;
     case 'P':
-        if (!strlen(arg))
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
             fprintf(stderr, "Interface name or all required as arg to -P, --per-interface-rules: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -1570,8 +1683,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
             prefix_interface = arg;
         }
         break;
+    case 'Q':
+        ebpf_disable = true;
+        break;
     case 'X':
-        if (!strlen(arg))
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
             fprintf(stderr, "Interface name or all required as arg to -X, --set-tc-filter: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -1597,9 +1713,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         cd = true;
         break;
     case 'e':
-        if (!strlen(arg))
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
-            fprintf(stderr, "Interface name required as arg to -e, --icmp-echo: %s\n", arg);
+            fprintf(stderr, "Interface name or all required as arg to -e, --icmp-echo: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
             exit(1);
         }
@@ -1673,7 +1789,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         tpt = true;
         break;
     case 'v':
-        if (!strlen(arg))
+        if (!strlen(arg)|| (strchr(arg, '-') != NULL))
         {
             fprintf(stderr, "Interface name or all required as arg to -v, --verbose: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -1690,7 +1806,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'x':
-        if (!strlen(arg))
+        if (!strlen(arg)|| (strchr(arg, '-') != NULL))
         {
             fprintf(stderr, "Interface name or all required as arg to -x, --disable-ssh: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
@@ -1728,14 +1844,22 @@ int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
+    if (ebpf_disable){
+        if(tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush){
+            usage("Q, --disable-ebpf cannot be used in combination call");
+        }
+        disable_ebpf();
+        exit(0);
+    }
+
     if (interface && !(add || delete))
     {
         usage("Missing argument -I, --insert");
     }
 
-    if ((tc && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush)))
+    if (list_diag && !list)
     {
-        usage("-E, --set-tc cannot be set as a part of combination call to map_update");
+        usage("-E, --list-diag requires -L --list");
     }
 
     if ((tcfilter && (echo || ssh_disable || verbose || per_interface || add || delete || list || flush)))
@@ -1788,6 +1912,9 @@ int main(int argc, char **argv)
 
     if (add)
     {
+        if(access(tproxy_map_path, F_OK) != 0){
+            ebpf_usage();
+        }
         if (!cd)
         {
             usage("Missing argument -c, --cider-block");
@@ -1831,6 +1958,9 @@ int main(int argc, char **argv)
     }
     else if (delete)
     {
+        if(access(tproxy_map_path, F_OK) != 0){
+            ebpf_usage();
+        }
         if (!cd)
         {
             usage("Missing argument -c, --cider-block");
@@ -1866,10 +1996,23 @@ int main(int argc, char **argv)
     }
     else if (flush)
     {
+        if(access(tproxy_map_path, F_OK) != 0){
+            ebpf_usage();
+        }
         map_flush();
     }
     else if (list)
     {
+        if((access(tproxy_map_path, F_OK) != 0) || (access(diag_map_path, F_OK) != 0)){
+            ebpf_usage();
+        }
+        if (list_diag){
+            if(cd || dl || cs || sl || prot){
+                printf("-E, --list-diag cannot be combined with cidr list arguments -c,-o, -m, -n, -p");
+            }
+            interface_diag();
+            exit(0);
+        }
         if (!cd && !dl)
         {
             map_list_all();
