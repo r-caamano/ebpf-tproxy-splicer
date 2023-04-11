@@ -907,7 +907,6 @@ void interface_diag()
                 verbose_interface = address->ifa_name;
                 prefix_interface = address->ifa_name;
                 ssh_interface = address->ifa_name;
-                ssh_interface = address->ifa_name;
                 diag_interface = address->ifa_name;
             }
             if (echo && !(idx == 1))
@@ -948,7 +947,7 @@ void interface_diag()
 
             if (ssh_disable && !(idx == 1))
             {
-                if (!strcmp(diag_interface, address->ifa_name))
+                if (!strcmp(ssh_interface, address->ifa_name))
                 {
                     set_diag(&idx);
                 }
@@ -1806,7 +1805,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         }
         break;
     case 'x':
-        if (!strlen(arg)|| (strchr(arg, '-') != NULL))
+        if (!strlen(arg) || (strchr(arg, '-') != NULL))
         {
             fprintf(stderr, "Interface name or all required as arg to -x, --disable-ssh: %s\n", arg);
             fprintf(stderr, "%s --help for more info\n", program_name);
