@@ -1228,7 +1228,10 @@ void map_delete_key(struct tproxy_key key)
     inet_aton(prefix, &dcidr);
     dplen = key.dprefix_len;
     free(prefix);
-    bool route_delete = interface_map();
+    bool route_delete = false;
+    if(route){
+        route_delete = interface_map();
+    }
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)tproxy_map_path;
