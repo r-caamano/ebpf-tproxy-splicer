@@ -239,15 +239,15 @@ void set_tc(char *action)
     }
 }
 
-void set_tc_filter(char *action, char * object_file)
+void set_tc_filter(char *action)
 {
     if(access("/usr/sbin/tc", F_OK) != 0){
         printf("tc not installed\n");
         exit(0);
     }
-    if(access(object_file, F_OK) != 0){
+    if(!strcmp("add",action) && access(object_file, F_OK) != 0){
         printf("object file %s not in path\n", object_file);
-        exit(0);
+        exit(1);
     }
     pid_t pid;
     if(!strcmp(action,"add")){
@@ -846,12 +846,12 @@ void interface_tc()
                     {
                         if (!disable)
                         {
-                            set_tc_filter("add", object_file);
+                            set_tc_filter("add");
                             set_diag(&idx);
                         }
                         else
                         {
-                            set_tc_filter("del", object_file);
+                            set_tc_filter("del");
                             set_diag(&idx);
                         }
                     }
@@ -1847,6 +1847,10 @@ struct argp argp = {options, parse_opt, 0, doc, 0, 0, 0};
 int main(int argc, char **argv)
 {
     argp_parse(&argp, argc, argv, 0, 0, 0);
+
+    if(tcfilter && !object && !disable){
+        usage("-X, --set-tc-filter requires -O, --object-file for add operation");
+    }
 
     if (ebpf_disable){
         if(tcfilter || echo || ssh_disable || verbose || per_interface || add || delete || list || flush){

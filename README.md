@@ -16,6 +16,26 @@ which traffic flows to accept. The open ziti edge-router then uses the map_updat
 allow traffic in on the interface tc is running on. For those interested in additional background on the project please visit: 
 https://openziti.io/using-ebpf-tc-to-securely-mangle-packets-in-the-kernel-and-pass-them-to-my-secure-networking-application.  
 
+
+## Build
+---
+[To build from source. Click here!](./BUILD.md)
+
+## Management After Deployment
+---
+
+### Attaching to interface
+
+```bash   
+sudo map_update --set-tc-filter <interface name> --object-file=tproxy_splicer.o --direction=ingress
+sudo map_update --set-tc-filter <interface name>--object-file=outbound_track.o --direction=egress //optional only if firewalling subtending devices see below
+sudo ufw allow in on <interface name> to any
+```
+
+ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
+services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
+initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
+
 A new addtion is firewall support for subtending devices for two interface scenarios i.e.
 external and trusted.
 
@@ -59,26 +79,6 @@ external and trusted.
     ```
     sudo map_update -I -c 172.16.31.0 -m 24 -l 443 -h 443 -t 44000 -p tcp -N ens37 -N lo
     ```
-
-## Build
----
-[To build from source. Click here!](./BUILD.md)
-
-## Management After Deployment
----
-
-### Attaching to interface
-
-```bash   
-sudo tc qdisc add dev <interface name>  clsact
-sudo tc filter add dev <interface name> ingress bpf da obj tproxy_splicer.o sec action
-sudo tc filter add dev <interface name> egress bpf da obj outbound_track.o sec action  //optional only if firewalling subtending devices 
-sudo ufw allow in on <interface name> to any
-```
-
-ebpf will now take over firewalling this interface and only allow ssh, dhcp and arp till ziti
-services are provisioned as inbound intercepts via the map_udate app. Router will statefully allow responses to router
-initiated sockets as well. tc commands above do not survive reboot so would need to be added to startup service / script.
 
 ### Openziti Ingress
 
