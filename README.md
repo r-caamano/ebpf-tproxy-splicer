@@ -220,6 +220,61 @@ target     proto    origin           destination              mapping:          
 PASSTHRU   udp      0.0.0.0/0        192.168.100.100/32       dpts=50000:60000 	      PASSTHRU to 192.168.100.100/32     []
 PASSTHRU   tcp      0.0.0.0/0        192.168.100.100/32       dpts=60000:65535	      PASSTHRU to 192.168.100.100/32     []
 ```
+Example: List all interface setting
+```bash
+Usage: ./map_update -L -E
+
+sudo ./map_update -E
+
+lo:
+--------------------------
+icmp echo               :1
+verbose                 :0
+ssh disable             :0
+per interface           :0
+tc ingress filter       :1
+tc egress filter        :0
+--------------------------
+
+ens33:
+--------------------------
+icmp echo               :0
+verbose                 :1
+ssh disable             :1
+per interface           :1
+tc ingress filter       :1
+tc egress filter        :1
+--------------------------
+
+ens37:
+--------------------------
+icmp echo               :0
+verbose                 :0
+ssh disable             :0
+per interface           :0
+tc ingress filter       :1
+tc egress filter        :0
+--------------------------
+```
+
+Example: Remove all tc-ebpf on router
+```bash
+Usage: ./map_update -Q,--disable-ebpf
+
+sudo map_update --disable-ebpf
+tc parent del : lo
+tc parent del : ens33
+tc parent del : ens37
+removing /sys/fs/bpf/tc/globals/zt_tproxy_map
+removing /sys/fs/bpf/tc/globals/diag_map
+removing /sys/fs/bpf/tc/globals/ifindex_ip_map
+removing /sys/fs/bpf/tc/globals/tuple_count_map
+removing /sys/fs/bpf/tc/globals/prog_map
+removing /sys/fs/bpf/tc/globals/udp_map
+removing /sys/fs/bpf/tc//globals/matched_map
+removing /sys/fs/bpf/tc/globals/tcp_map
+```
+
 
 ## Additional Distro testing
 ---
