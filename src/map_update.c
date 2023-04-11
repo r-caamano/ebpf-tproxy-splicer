@@ -156,7 +156,7 @@ struct tproxy_key
 
 void ebpf_usage(){
     if(access(tproxy_map_path, F_OK) != 0){
-        printf("Ebpf not Enabled. Add a tc [filter -X, --set-tc-filter] on at least one interface\n");
+        printf("Ebpf not Enabled. Add an ingress tc filter [filter -X, --set-tc-filter] on at least one interface\n");
         exit(1);
     }
 }
@@ -776,7 +776,12 @@ bool set_diag(int *idx)
         }else{
             printf("%s:\n",diag_interface);
             printf("--------------------------\n");
-            printf("%-24s:%d\n", "icmp echo",o_diag.echo);
+            if(*idx != 1){
+                printf("%-24s:%d\n", "icmp echo",o_diag.echo);
+            }
+            else{
+                printf("%-24s:%d\n", "icmp echo",1);
+            }
             printf("%-24s:%d\n", "verbose", o_diag.verbose);
             printf("%-24s:%d\n", "ssh disable", o_diag.ssh_disable);
             printf("%-24s:%d\n", "per interface",o_diag.per_interface); 
