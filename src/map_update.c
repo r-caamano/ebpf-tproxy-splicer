@@ -795,6 +795,41 @@ bool set_diag(int *idx)
     return true;
 }
 
+void update_if_map(int idx, in_addr_t ifip, char *ifa_name){
+    struct ifindex_ip4 ifip4 = {
+            ifip,
+            {0}
+    };
+    sprintf(ifip4.ifname, "%s", ifa_name);
+    union bpf_attr if_map;
+    /*path to pinned ifindex_ip_map*/
+    /* open BPF ifindex_ip_map */
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    if_map.map_fd = if_fd;
+    if_map.key = (uint64_t)&idx;
+    if_map.flags = BPF_ANY;
+    if_map.value = (uint64_t)&ifip4;
+    int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+    if (ret)
+    {
+        printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+        close(if_fd);
+        exit(1);
+    }
+    close(if_fd);
+}
+
 void interface_tc()
 {
     /* create bpf_attr to store ifindex_ip_map */
@@ -886,7 +921,6 @@ void interface_diag()
     struct sockaddr_in *ipaddr;
     in_addr_t ifip;
     int lo_count = 0;
-    int if_fd = -1;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -902,10 +936,6 @@ void interface_diag()
                 ifip = 0x0100007f;
                 lo_count++;
             }
-            struct ifindex_ip4 ifip4 = {
-                ifip,
-                {0}};
-            sprintf(ifip4.ifname, "%s", address->ifa_name);
             if (all_interface)
             {
                 echo_interface = address->ifa_name;
@@ -965,48 +995,17 @@ void interface_diag()
                 ebpf_usage();
             }
             if(!((idx == 1) && lo_count > 1)){
-                union bpf_attr if_map;
-                /*path to pinned ifindex_ip_map*/
-                /* open BPF ifindex_ip_map */
-                memset(&if_map, 0, sizeof(if_map));
-                /* set path name with location of map in filesystem */
-                if_map.pathname = (uint64_t)if_map_path;
-                if_map.bpf_fd = 0;
-                if_map.file_flags = 0;
-                /* make system call to get fd for map */
-                if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
-                if (if_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                    exit(1);
-                }
-                if_map.map_fd = if_fd;
-                if_map.key = (uint64_t)&idx;
-                if_map.flags = BPF_ANY;
-                if_map.value = (uint64_t)&ifip4;
-                int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-                if (ret)
-                {
-                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                    close(if_fd);
-                    exit(1);
-                }
+                update_if_map(idx, ifip, address->ifa_name);
             }
         }
         net_count++;
         address = address->ifa_next;
-    }
-    if(if_fd != -1){
-        close(if_fd);
     }
     freeifaddrs(addrs);
 }
 
 bool interface_map()
 {
-    /* create bpf_attr to store ifindex_ip_map */
-    union bpf_attr if_map;
-    /*path to pinned ifindex_ip_map*/
     struct ifaddrs *addrs;
 
     /* call function to get a linked list of interface structs from system */
@@ -1050,34 +1049,8 @@ bool interface_map()
             {
                 ifip = 0x0100007f;
             }
-            struct ifindex_ip4 ifip4 = {
-                ifip,
-                {0}};
-            sprintf(ifip4.ifname, "%s", address->ifa_name);
-             memset(&if_map, 0, sizeof(if_map));
-            /* set path name with location of map in filesystem */
             if(!flush){
-                if_map.pathname = (uint64_t)if_map_path;
-                if_map.bpf_fd = 0;
-                if_map.file_flags = 0;
-                /* make system call to get fd for map */
-                if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
-                if (if_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                    exit(1);
-                }
-                if_map.map_fd = if_fd;
-                if_map.key = (uint64_t)&idx;
-                if_map.flags = BPF_ANY;
-                if_map.value = (uint64_t)&ifip4;
-                int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-                if (ret)
-                {
-                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                    close(if_fd);
-                    exit(1);
-                }
+                update_if_map(idx, ifip, address->ifa_name);
             }
         }
         net_count++;
