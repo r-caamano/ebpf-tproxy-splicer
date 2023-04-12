@@ -1017,19 +1017,6 @@ bool interface_map()
     }
     struct ifaddrs *address = addrs;
     /* open BPF ifindex_ip_map */
-    memset(&if_map, 0, sizeof(if_map));
-    /* set path name with location of map in filesystem */
-    if_map.pathname = (uint64_t)if_map_path;
-    if_map.bpf_fd = 0;
-    if_map.file_flags = 0;
-    /* make system call to get fd for map */
-    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
-    if (if_fd == -1)
-    {
-        printf("BPF_OBJ_GET: %s \n", strerror(errno));
-        exit(1);
-    }
-    if_map.map_fd = if_fd;
     int idx = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
@@ -1041,6 +1028,7 @@ bool interface_map()
     in_addr_t ifip;
     int ipcheck = 0;
     bool create_route = true;
+    int if_fd=-1;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -1066,21 +1054,38 @@ bool interface_map()
                 ifip,
                 {0}};
             sprintf(ifip4.ifname, "%s", address->ifa_name);
-            if_map.key = (uint64_t)&idx;
-            if_map.flags = BPF_ANY;
-            if_map.value = (uint64_t)&ifip4;
-            int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
-            if (ret)
-            {
-                printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
-                close(if_fd);
-                exit(1);
+             memset(&if_map, 0, sizeof(if_map));
+            /* set path name with location of map in filesystem */
+            if(!flush){
+                if_map.pathname = (uint64_t)if_map_path;
+                if_map.bpf_fd = 0;
+                if_map.file_flags = 0;
+                /* make system call to get fd for map */
+                if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+                if (if_fd == -1)
+                {
+                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
+                    exit(1);
+                }
+                if_map.map_fd = if_fd;
+                if_map.key = (uint64_t)&idx;
+                if_map.flags = BPF_ANY;
+                if_map.value = (uint64_t)&ifip4;
+                int ret = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &if_map, sizeof(if_map));
+                if (ret)
+                {
+                    printf("MAP_UPDATE_ELEM: %s \n", strerror(errno));
+                    close(if_fd);
+                    exit(1);
+                }
             }
         }
         net_count++;
         address = address->ifa_next;
     }
-    close(if_fd);
+    if(if_fd != -1){
+        close(if_fd);
+    }
     freeifaddrs(addrs);
     return create_route;
 }
