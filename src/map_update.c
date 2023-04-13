@@ -1382,7 +1382,8 @@ void map_delete()
 void map_flush()
 {
     union bpf_attr map;
-    struct tproxy_key *key = NULL;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
@@ -1538,7 +1539,8 @@ int get_key_count()
 void map_list_all()
 {
     union bpf_attr map;
-    struct tproxy_key *key = NULL;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
