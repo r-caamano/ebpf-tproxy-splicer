@@ -1228,7 +1228,10 @@ void map_delete_key(struct tproxy_key key)
     inet_aton(prefix, &dcidr);
     dplen = key.dprefix_len;
     free(prefix);
-    bool route_delete = interface_map();
+    bool route_delete = false;
+    if(route){
+        route_delete = interface_map();
+    }
     union bpf_attr map;
     memset(&map, 0, sizeof(map));
     map.pathname = (uint64_t)tproxy_map_path;
@@ -1382,7 +1385,8 @@ void map_delete()
 void map_flush()
 {
     union bpf_attr map;
-    struct tproxy_key *key = NULL;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
@@ -1538,7 +1542,8 @@ int get_key_count()
 void map_list_all()
 {
     union bpf_attr map;
-    struct tproxy_key *key = NULL;
+    struct tproxy_key init_key = {0};
+    struct tproxy_key *key = &init_key;
     struct tproxy_key current_key;
     struct tproxy_tuple orule;
     // Open BPF zt_tproxy_map map
