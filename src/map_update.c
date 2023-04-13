@@ -886,7 +886,21 @@ void interface_diag()
     struct sockaddr_in *ipaddr;
     in_addr_t ifip;
     int lo_count = 0;
-    int if_fd = -1;
+    union bpf_attr if_map;
+    /* open BPF ifindex_ip_map */
+    memset(&if_map, 0, sizeof(if_map));
+    /* set path name with location of map in filesystem */
+    if_map.pathname = (uint64_t)if_map_path;
+    if_map.bpf_fd = 0;
+    if_map.file_flags = 0;
+    /* make system call to get fd for map */
+    int if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
+    if (if_fd == -1)
+    {
+        printf("BPF_OBJ_GET: %s \n", strerror(errno));
+        exit(1);
+    }
+    if_map.map_fd = if_fd;
     while (address)
     {
         if (address->ifa_addr && (address->ifa_addr->sa_family == AF_INET))
@@ -965,22 +979,6 @@ void interface_diag()
                 ebpf_usage();
             }
             if(!((idx == 1) && lo_count > 1)){
-                union bpf_attr if_map;
-                /*path to pinned ifindex_ip_map*/
-                /* open BPF ifindex_ip_map */
-                memset(&if_map, 0, sizeof(if_map));
-                /* set path name with location of map in filesystem */
-                if_map.pathname = (uint64_t)if_map_path;
-                if_map.bpf_fd = 0;
-                if_map.file_flags = 0;
-                /* make system call to get fd for map */
-                if_fd = syscall(__NR_bpf, BPF_OBJ_GET, &if_map, sizeof(if_map));
-                if (if_fd == -1)
-                {
-                    printf("BPF_OBJ_GET: %s \n", strerror(errno));
-                    exit(1);
-                }
-                if_map.map_fd = if_fd;
                 if_map.key = (uint64_t)&idx;
                 if_map.flags = BPF_ANY;
                 if_map.value = (uint64_t)&ifip4;
@@ -996,9 +994,7 @@ void interface_diag()
         net_count++;
         address = address->ifa_next;
     }
-    if(if_fd != -1){
-        close(if_fd);
-    }
+    close(if_fd);
     freeifaddrs(addrs);
 }
 
@@ -1016,6 +1012,7 @@ bool interface_map()
         exit(1);
     }
     struct ifaddrs *address = addrs;
+    int idx = 0;
     /* open BPF ifindex_ip_map */
     memset(&if_map, 0, sizeof(if_map));
     /* set path name with location of map in filesystem */
@@ -1030,7 +1027,6 @@ bool interface_map()
         exit(1);
     }
     if_map.map_fd = if_fd;
-    int idx = 0;
     /*
      * traverse linked list of interfaces and for each non-loopback interface
      *  populate the index into the map with ifindex as the key and ip address
