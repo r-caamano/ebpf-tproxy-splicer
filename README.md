@@ -103,7 +103,7 @@ sudo ziti-router run config.yml
 ### Detaching from interface:
 
 ```bash
-sudo tc qdisc del dev <interface name>  clsact
+sudo map_update --set-tc-filter <interface name>  --direction <ingress | egress> --disable
 ```
 
 ## Ebpf Map User Space Management
