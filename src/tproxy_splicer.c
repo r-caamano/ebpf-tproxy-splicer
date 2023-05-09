@@ -868,7 +868,7 @@ int bpf_sk_splice2(struct __sk_buff *skb){
             each octet.
             */
             if(dmask == 0x80ffff){
-                bpf_tail_call(skb, &prog_map, 4);
+                bpf_tail_call(skb, &prog_map, 3);
                 break;
             }
             iterate_masks(&dmask, &dexponent);
