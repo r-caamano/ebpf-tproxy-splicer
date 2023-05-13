@@ -347,15 +347,4 @@ if [ -n "${new_domain_name_servers}" ]; then
 ![Diagram](packet-flow.drawio.png) 
 
 
-## Deployment on Ubuntu
----
-Since ebpf programs are not persistent over reboots, one needs a way to re-attach them to interfaces. We created a bash script to be run at boot time, and it is also triggered by ziti-router systemd service when it is restarted. Both are located under the files directory.
-1. [tproxy_splicer_startup.sh](./files/scripts/tproxy_splicer_startup.sh)
-1. [ziti-router.service](./files/services/ziti-router.service)
 
-The script is created with comments, so hopefully the comments will help readers understand what is happening. One thing to pay attention to is `lanIf`. The `lanIf` option is configred in the ziti-router configuration file evey time either tproxy with iptables or ebpf is configured. 
-```bash
-# Here is the code snippet from the script:
-MYIF=$(cat /opt/netfoundry/ziti/ziti-router/config.yml |yq '.listeners[] | select(.binding == "tunnel").options.lanIf')
-```
-As one can see we lookup lanIf (i.e. `.options.lanIf`) in the config.yml file located in the ziti-router directory. Based on that port everyting else is configured for the ebpf program to work. We also look up the fabric, edge, and health-check ports to update the tproxy map to allow these ports in along with `DNS UDP Port 53`.
