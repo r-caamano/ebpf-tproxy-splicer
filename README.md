@@ -1,5 +1,7 @@
-                                       <h1><span style="color:red">DEPRICATED</span></h1>
-                                       Project moved to https://github.com/r-caamano/zfw
+                                        # DEPRICATED
+                         Project moved to https://github.com/r-caamano/zfw
+
+                                   
 
 ## Introduction
 --- 
