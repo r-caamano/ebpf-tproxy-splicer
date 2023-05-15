@@ -1,5 +1,5 @@
-                                        # DEPRICATED
-                         Project moved to https://github.com/r-caamano/zfw
+# DEPRICATED
+  Project moved to https://github.com/r-caamano/zfw
 
                                    
 
