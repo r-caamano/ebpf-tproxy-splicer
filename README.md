@@ -1,3 +1,6 @@
+                                       <h1><span style="color:red">DEPRICATED</span></h1>
+                                       Project moved to https://github.com/r-caamano/zfw
+
 ## Introduction
 --- 
 **Notice: This repo has been hard forked into https://github.com/netfoundry/ebpf-tproxy-splicer for inclusion in 
