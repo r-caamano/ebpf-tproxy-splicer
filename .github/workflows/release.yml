@@ -52,8 +52,6 @@ jobs:
 
   create_release:
       runs-on: ubuntu-22.04
-      outputs:
-       upload_url: ${{ steps.release.outputs.upload_url }}
       needs:
         - build_release
       strategy:
@@ -98,4 +96,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           file: ./tproxy_splicer.tar.gz
+          release_name: v{{ env.version }}
           tag_name: v{{ env.version }}
