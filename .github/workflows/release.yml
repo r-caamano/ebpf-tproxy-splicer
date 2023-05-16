@@ -34,14 +34,8 @@ jobs:
           tar -cvzf tproxy_splicer.tar.gz files/objects/tproxy_splicer.o
           
       - name: Get version
-        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
+        run: echo "version=`files/bin/zfw -V`" >> $GITHUB_OUTPUT
         id: version
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: version
-          path: |
-            ./version.txt
       
       - uses: actions/upload-artifact@v3
         with:
@@ -63,7 +57,7 @@ jobs:
           with:
             draft: false
             prerelease: false
-            tag: v${{ needs.build_release.version.outputs.version }}
+            tag: v${{ needs.build_release.outputs.version }}
           env:
             GITHUB_TOKEN: ${{ github.token }}
             
@@ -86,5 +80,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           file: ./tproxy_splicer.tar.gz
-          release_name: v${{ needs.build_release.version.outputs.version }}
-          tag: v${{ needs.build_release.version.outputs.version }}
+          release_name: v${{ needs.build_release.outputs.version }}
+          tag: v${{ needs.build_release.outputs.version }}
