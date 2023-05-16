@@ -98,4 +98,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           file: ./tproxy_splicer.tar.gz
-          tag: v{{ env.version }}
+          tag_name: v{{ env.version }}
