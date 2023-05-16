@@ -93,11 +93,9 @@ jobs:
         with:
           name: archive
       - name: Upload built deb artifacts
-        uses: actions/upload-release-asset@v1.0.2
+        uses: svenstaro/upload-release-action@2.5.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./tproxy_splicer.tar.gz
-          asset_name: ./tproxy_splicer.tar.gz
-          asset_content_type: application/gzip
+          file: ./tproxy_splicer.tar.gz
+          tag: v{{ env.version }}
