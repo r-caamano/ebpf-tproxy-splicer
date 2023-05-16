@@ -58,7 +58,7 @@ jobs:
         - name: add version to env
           run: echo "version=`cat ./version.txt`" >> $GITHUB_ENV
         - name: Create release
-          uses: actions/create-release@v1
+          uses: actions/create-release@v1.12.0
           id: release
           with:
             draft: false
