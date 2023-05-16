@@ -26,32 +26,44 @@ jobs:
         run: |
           clang -g -O2 -Wall -Wextra -target bpf -c -o files/objects/tproxy_splicer.o src/tproxy_splicer.c
           clang -O2 -Wall -Wextra -o files/objects/map_update src/map_update.c 
-          chmod +x files/scripts/tproxy_splicer_startup.sh
 
       - name: Tar Object File
         run: |
-          tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C files/ objects services scripts
+          tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C objects
+          
       - name: Get version
-        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
+        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_ENV
         id: version
 
-      - name: Create release
-        uses: actions/create-release@v1
-        id: release
-        with:
-          draft: false
-          prerelease: false
-          release_name: v${{ steps.version.outputs.version }}
-          tag_name: v${{ steps.version.outputs.version }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: create_version_artifact
+        run: echo '${{ env.version }}' > version.txt
 
-      - name: Upload a built artifact for release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: tproxy_splicer.tar.gz
-          asset_name: tproxy_splicer.tar.gz
-          asset_content_type: application/gzip
+          name: version
+          path: |
+            ./version.txt
+
+  create_release:
+      runs-on: ubuntu-22.04
+      needs:
+        - build_release
+      strategy:
+        matrix:
+          goos: [linux]
+      steps:
+        - uses: actions/download-artifact@v3
+          with:
+            name: version
+        - name: add version to env
+          run: echo "version=`cat ./version.txt`" >> $GITHUB_ENV
+        - name: Create release
+          uses: actions/create-release@v1
+          id: release
+          with:
+            draft: false
+            prerelease: false
+            release_name: v${{ env.version }}
+            tag_name: v${{ env.version }}
+          env:
+            GITHUB_TOKEN: ${{ github.token }}
