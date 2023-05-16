@@ -100,3 +100,4 @@ jobs:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
           asset_path: ./tproxy_splicer.tar.gz
           asset_name: ./tproxy_splicer.tar.gz
+          asset_content_type: application/gzip
