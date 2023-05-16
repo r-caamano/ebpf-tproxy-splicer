@@ -8,6 +8,8 @@ on:
 jobs: 
   build_release:
     runs-on: [self-hosted, linux, X64]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     strategy:
       matrix:
         goos: [linux]
@@ -32,11 +34,8 @@ jobs:
           tar -cvzf tproxy_splicer.tar.gz files/objects/tproxy_splicer.o
           
       - name: Get version
-        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_ENV
+        run: echo "version=`files/objects/map_update -V`" >> $GITHUB_OUTPUT
         id: version
-
-      - name: create_version_artifact
-        run: echo '${{ env.version }}' > version.txt
 
       - uses: actions/upload-artifact@v3
         with:
@@ -58,35 +57,26 @@ jobs:
         matrix:
           goos: [linux]
       steps:
-        - uses: actions/download-artifact@v3
-          with:
-            name: version
-        - name: add version to env
-          run: echo "version=`cat ./version.txt`" >> $GITHUB_ENV
         - name: Create release
           uses: ncipollo/release-action@v1.12.0
           id: release
           with:
             draft: false
             prerelease: false
-            tag: v${{ env.version }}
+            tag: v${{ needs.build_release.version.outputs.version }}
           env:
             GITHUB_TOKEN: ${{ github.token }}
             
   deploy_package:
     runs-on: ubuntu-22.04
     needs:
-      create_release
+      - build_release
+      - create_release
     strategy:
       matrix:
         goos: [linux]
         goarch: [amd64]
     steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: version
-      - name: add version to env
-        run: echo "version=`cat ./version.txt`" >> $GITHUB_ENV
       - uses: actions/download-artifact@v3
         with:
           name: archive
@@ -96,5 +86,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           file: ./tproxy_splicer.tar.gz
-          release_name: v${{ env.version }}
-          tag: v${{ env.version }}
+          release_name: v${{ needs.build_release.version.outputs.version }}
+          tag: v${{ needs.build_release.version.outputs.version }}
