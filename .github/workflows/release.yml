@@ -65,5 +65,6 @@ jobs:
             prerelease: false
             release_name: v${{ env.version }}
             tag_name: v${{ env.version }}
+            tag: v${{ env.version }}
           env:
             GITHUB_TOKEN: ${{ github.token }}
