@@ -43,9 +43,17 @@ jobs:
           name: version
           path: |
             ./version.txt
+      
+      - uses: actions/upload-artifact@v3
+        with:
+          name: archive
+          path: |
+            ./tproxy_splicer.tar.gz
 
   create_release:
       runs-on: ubuntu-22.04
+      outputs:
+       upload_url: ${{ steps.release.outputs.upload_url }}
       needs:
         - build_release
       strategy:
@@ -66,3 +74,29 @@ jobs:
             tag: v${{ env.version }}
           env:
             GITHUB_TOKEN: ${{ github.token }}
+            
+  deploy_packages:
+    runs-on: ubuntu-22.04
+    needs:
+      create_release
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: version
+      - name: add version to env
+        run: echo "version=`cat ./version.txt`" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v3
+        with:
+          name: archive
+      - name: Upload built deb artifacts
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./tproxy_splicer.tar.gz
+          asset_name: ./tproxy_splicer.tar.gz
