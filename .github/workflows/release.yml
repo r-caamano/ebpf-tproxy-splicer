@@ -29,7 +29,7 @@ jobs:
 
       - name: Tar Object File
         run: |
-          tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C objects
+          tar -cvzf tproxy_splicer.tar.gz --strip-components=1 -C files/objects
           
       - name: Get version
         run: echo "version=`files/objects/map_update -V`" >> $GITHUB_ENV
