@@ -75,7 +75,7 @@ jobs:
           env:
             GITHUB_TOKEN: ${{ github.token }}
             
-  deploy_packages:
+  deploy_package:
     runs-on: ubuntu-22.04
     needs:
       create_release
