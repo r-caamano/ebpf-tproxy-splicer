@@ -1,4 +1,4 @@
-# DEPRICATED
+# DEPRECATED
   Project moved to https://github.com/r-caamano/zfw
 
                                    
