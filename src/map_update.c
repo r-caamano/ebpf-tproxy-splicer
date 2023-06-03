@@ -340,7 +340,7 @@ int get_index(char *name, int *idx)
     }
 
     *idx = irequest.ifr_ifindex;
-
+    close(fd);
     return 0;
 }
 
