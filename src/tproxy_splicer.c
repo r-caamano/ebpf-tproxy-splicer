@@ -120,7 +120,14 @@ struct match_tracker {
     struct tproxy_key matched_keys[MATCHED_KEY_DEPTH];
 };
 
-
+/*key to matched_map*/
+struct match_key {
+    __u32 saddr;
+    __u32 daddr;
+    __u16 sport;
+    __u16 dport;
+    __u32 ifindex;
+};
 
 /*value to ifindex_ip_map*/
 struct ifindex_ip4 {
@@ -153,11 +160,10 @@ then used to search for port mappings.  This was required when source filtering 
 added to accommodate the additional intructions per ebpf program.  The search now spans
 5 ebpf programs  */
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(id, BPF_MAP_ID_MATCHED_KEY);
-    __uint(key_size, sizeof(unsigned int));
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(key_size, sizeof(struct match_key));
     __uint(value_size, sizeof(struct match_tracker));
-    __uint(max_entries, MATCHED_INT_DEPTH);
+    __uint(max_entries, 65535);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
 } matched_map SEC(".maps");
 
@@ -304,19 +310,19 @@ future use*/
 }*/
 
 /*function to update the matched_map locally from ebpf*/
-static inline void insert_matched_key(struct match_tracker matched_keys, unsigned int key){
+static inline void insert_matched_key(struct match_tracker matched_keys, struct match_key key){
      bpf_map_update_elem(&matched_map, &key, &matched_keys,0);
 }
 
 /*Function to get stored matched tracker*/
-static inline struct match_tracker *get_matched_keys(unsigned int key){
+static inline struct match_tracker *get_matched_keys(struct match_key key){
     struct match_tracker *mt;
     mt = bpf_map_lookup_elem(&matched_map, &key);
 	return mt;
 }
 
 /*Function to get stored matched key count*/
-static inline __u16 get_matched_count(unsigned key){
+static inline __u16 get_matched_count(struct match_key key){
     struct match_tracker *mt;
     __u16 mc = 0;
     mt = bpf_map_lookup_elem(&matched_map,&key);
@@ -327,9 +333,8 @@ static inline __u16 get_matched_count(unsigned key){
 }
 
 /*Function to clear matched tracker*/
-static inline void clear_match_tracker(__u32 key){
-    struct match_tracker mt = {0};
-    bpf_map_update_elem(&matched_map, &key, &mt,0);
+static inline void clear_match_tracker(struct match_key key){
+    bpf_map_delete_elem(&matched_map, &key);
 }
 
 /* function to determine if an incomming packet is a udp/tcp IP tuple
@@ -710,7 +715,8 @@ int bpf_sk_splice(struct __sk_buff *skb){
         }
     }
     //init the match_count_map
-    clear_match_tracker(skb->ifindex);
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    clear_match_tracker(mkey);
     bpf_tail_call(skb, &prog_map, 1);
     if(skb->ingress_ifindex == 1){
         return TC_ACT_OK;
@@ -763,9 +769,10 @@ int bpf_sk_splice1(struct __sk_buff *skb){
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
     struct match_tracker key_tracker = {0,{}};
-    insert_matched_key(key_tracker, skb->ifindex);
-    struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
-     if(!tracked_key_data){
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    insert_matched_key(key_tracker, mkey);
+    struct match_tracker *tracked_key_data = get_matched_keys(mkey);
+    if(!tracked_key_data){
        return TC_ACT_SHOT;
     }
     for (__u16 dcount = 0;dcount <= maxlen; dcount++){
@@ -835,7 +842,8 @@ int bpf_sk_splice2(struct __sk_buff *skb){
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
-    struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    struct match_tracker *tracked_key_data = get_matched_keys(mkey);
     if(!tracked_key_data){
        return TC_ACT_SHOT;
     }
@@ -907,7 +915,8 @@ int bpf_sk_splice3(struct __sk_buff *skb){
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
-    struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    struct match_tracker *tracked_key_data = get_matched_keys(mkey);
     if(!tracked_key_data){
        return TC_ACT_SHOT;
     }
@@ -978,7 +987,8 @@ int bpf_sk_splice4(struct __sk_buff *skb){
     __u16 maxlen = 8; /* max number ip ipv4 prefixes */
     __u16 smaxlen = 32; /* max number ip ipv4 prefixes */
     /*Main loop to lookup tproxy prefix matches in the zt_tproxy_map*/
-    struct match_tracker *tracked_key_data = get_matched_keys(skb->ifindex);
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    struct match_tracker *tracked_key_data = get_matched_keys(mkey);
     if(!tracked_key_data){
        return TC_ACT_SHOT;
     }
@@ -1062,12 +1072,13 @@ int bpf_sk_splice5(struct __sk_buff *skb){
     }   
     struct tproxy_tuple *tproxy;
     struct match_tracker *key_tracker;
-    __u16 match_count = get_matched_count(skb->ifindex);
+    struct match_key mkey = {tuple->ipv4.saddr, tuple->ipv4.daddr, tuple->ipv4.sport, tuple->ipv4.dport, skb->ifindex};
+    __u16 match_count = get_matched_count(mkey);
     if (match_count > MATCHED_KEY_DEPTH){
        match_count = MATCHED_KEY_DEPTH;
     }
     for(__u16 count =0; count < match_count; count++){
-        key_tracker = get_matched_keys(skb->ifindex);
+        key_tracker = get_matched_keys(mkey);
         if(key_tracker){
            key = key_tracker->matched_keys[count];
         }else{
