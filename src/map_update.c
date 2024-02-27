@@ -106,7 +106,7 @@ static char *prefix_interface;
 static char *tc_interface;
 static char *object_file;
 static char *direction_string;
-const char *argp_program_version = "0.2.8";
+const char *argp_program_version = "0.2.9";
 
 static __u8 if_list[MAX_IF_LIST_ENTRIES];
 int ifcount = 0;
